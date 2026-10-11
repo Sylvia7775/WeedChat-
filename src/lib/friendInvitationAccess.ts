@@ -1,5 +1,6 @@
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
+import { notifyChatsIconFriendBefriended } from './chatIconNotificationsHelper';
 
 export interface FriendInvitationRecord {
   id: string;
@@ -166,6 +167,19 @@ export async function saveFriendInvitation(
           detail: invitation,
         })
       );
+      notifyChatsIconFriendBefriended({
+        friendName: invitation.senderName || 'A Friend',
+        friendAvatar: invitation.senderAvatar,
+        befriendedPersonName: invitation.invitedUserName || 'a new friend',
+        contactId: invitation.invitedUserId || invitation.senderId,
+      });
+    } else if (invitation.status === 'accepted') {
+      notifyChatsIconFriendBefriended({
+        friendName: invitation.invitedUserName || invitation.senderName || 'Your Friend',
+        friendAvatar: invitation.invitedUserAvatar || invitation.senderAvatar,
+        befriendedPersonName: invitation.senderName || 'you',
+        contactId: invitation.invitedUserId || invitation.senderId,
+      });
     }
   }
 

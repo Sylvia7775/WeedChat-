@@ -1233,7 +1233,49 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const wallpaperFileInputRef = useRef<HTMLInputElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
+
+  const chatWallpaperStorageKey = `freedom_chat_wallpaper_${contact.id}`;
+  const [chatWallpaperUrl, setChatWallpaperUrl] = useState<string>(() => {
+    try {
+      return (
+        localStorage.getItem(`freedom_chat_wallpaper_${contact.id}`) ||
+        localStorage.getItem('freedom_chat_wallpaper_global') ||
+        ''
+      );
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const saved =
+        localStorage.getItem(chatWallpaperStorageKey) ||
+        localStorage.getItem('freedom_chat_wallpaper_global') ||
+        '';
+      setChatWallpaperUrl(saved);
+    } catch {
+      setChatWallpaperUrl('');
+    }
+  }, [contact.id, chatWallpaperStorageKey]);
+
+  const handleChatWallpaperFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const optimizedUrl = await optimizeUploadedImageFile(file);
+    if (optimizedUrl) {
+      setChatWallpaperUrl(optimizedUrl);
+      try {
+        localStorage.setItem(chatWallpaperStorageKey, optimizedUrl);
+        localStorage.setItem('freedom_chat_wallpaper_global', optimizedUrl);
+      } catch {}
+      setReactionFeedback('Wallpaper updated');
+      setTimeout(() => setReactionFeedback(null), 2500);
+    }
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
@@ -1873,65 +1915,6 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                   }`}
                 >
                   <button
-                    id="menu-view-user-profile-btn"
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setSelectedProfileContact(contact);
-                      setIsUserProfileModalOpen(true);
-                    }}
-                    className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                      isDark ? 'text-slate-100' : 'text-slate-900'
-                    }`}
-                  >
-                    {isGroupChat ? (
-                      <>
-                        <Users className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <span>View Group Page</span>
-                      </>
-                    ) : (
-                      <>
-                        <User className="w-4 h-4 text-emerald-400 shrink-0" />
-                        <span>View User Profile & Bio</span>
-                      </>
-                    )}
-                  </button>
-
-                  {isGroupChat && (
-                    <button
-                      id="menu-schedule-group-video-call-btn"
-                      type="button"
-                      onClick={() => {
-                        setIsMoreMenuOpen(false);
-                        setIsGroupCallSchedulerOpen(true);
-                      }}
-                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                        isDark ? 'text-slate-100' : 'text-slate-900'
-                      }`}
-                    >
-                      <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Schedule Group Video Call</span>
-                    </button>
-                  )}
-
-                  {!isGroupChat && (
-                    <button
-                      id="menu-open-media-gallery-btn"
-                      type="button"
-                      onClick={() => {
-                        setIsMoreMenuOpen(false);
-                        setIsMediaGalleryOpen(true);
-                      }}
-                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                        isDark ? 'text-slate-100' : 'text-slate-900'
-                      }`}
-                    >
-                      <Images className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Media, Video & Docs Gallery</span>
-                    </button>
-                  )}
-
-                  <button
                     id="menu-toggle-search-btn"
                     type="button"
                     onClick={() => {
@@ -1946,40 +1929,29 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                     <span>Search in Conversation</span>
                   </button>
 
-                  {onOpenImportWhatsApp && (
-                    <button
-                      id="menu-import-whatsapp-btn"
-                      type="button"
-                      onClick={() => {
-                        setIsMoreMenuOpen(false);
-                        onOpenImportWhatsApp();
-                      }}
-                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                        isDark ? 'text-slate-100' : 'text-slate-900'
-                      }`}
-                    >
-                      <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Import WhatsApp Messages</span>
-                    </button>
-                  )}
-
                   <button
-                    id="menu-toggle-translate-btn"
+                    id="menu-view-user-profile-btn"
                     type="button"
                     onClick={() => {
                       setIsMoreMenuOpen(false);
-                      setShowTranslateMode(!showTranslateMode);
+                      setSelectedProfileContact(contact);
+                      setIsUserProfileModalOpen(true);
                     }}
                     className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
                       isDark ? 'text-slate-100' : 'text-slate-900'
                     }`}
                   >
-                    <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>
-                      {showTranslateMode
-                        ? 'Hide Translation'
-                        : `Translate (${contact.nativeLanguage || 'French'})`}
-                    </span>
+                    {isGroupChat ? (
+                      <>
+                        <Users className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Profile</span>
+                      </>
+                    ) : (
+                      <>
+                        <User className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Profile</span>
+                      </>
+                    )}
                   </button>
 
                   {isGroupChat ? (
@@ -2014,9 +1986,54 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                       }`}
                     >
                       <Handshake className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Friendship & Engagement</span>
+                      <span>Friends</span>
                     </button>
                   )}
+
+                  {!isGroupChat && (
+                    <button
+                      id="menu-open-media-gallery-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsMediaGalleryOpen(true);
+                      }}
+                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
+                        isDark ? 'text-slate-100' : 'text-slate-900'
+                      }`}
+                    >
+                      <Images className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Media</span>
+                    </button>
+                  )}
+
+                  <button
+                    id="menu-open-ai-voice-btn"
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      setIsAiVoiceBoxActive((prev) => {
+                        const next = !prev;
+                        setReactionFeedback(
+                          next
+                            ? `🎙️ AI Germain enabled (${selectedAiVoiceName})`
+                            : 'AI Germain hidden'
+                        );
+                        setTimeout(() => setReactionFeedback(null), 2400);
+                        return next;
+                      });
+                    }}
+                    className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
+                      isAiVoiceBoxActive
+                        ? 'text-emerald-500 dark:text-emerald-400'
+                        : isDark
+                        ? 'text-slate-100'
+                        : 'text-slate-900'
+                    }`}
+                  >
+                    <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>AI Germain</span>
+                  </button>
 
                   <button
                     id="menu-toggle-video-autoplay-btn"
@@ -2028,8 +2045,8 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                       setAutoPlayChatVideosSetting(nextVal);
                       setReactionFeedback(
                         nextVal
-                          ? '🎬 Video Auto-Play ON in Chat Feed'
-                          : '🔋 Video Auto-Play OFF (Data & Battery Saver Active)'
+                          ? '🎬 Video auto Play :on'
+                          : '🔋 Video auto Play :off'
                       );
                       setTimeout(() => setReactionFeedback(null), 2600);
                     }}
@@ -2048,40 +2065,76 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                     )}
                     <span>
                       {autoPlayChatVideos
-                        ? 'Video Auto-Play: ON (Tap to Save Data)'
-                        : 'Video Auto-Play: OFF (Data & Battery Saver)'}
+                        ? 'Video auto Play :on'
+                        : 'Video auto Play :off'}
                     </span>
                   </button>
 
+                  <a
+                    id="menu-wallpaper-sidebar-link"
+                    href="#wallpaper"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsMoreMenuOpen(false);
+                      wallpaperFileInputRef.current?.click();
+                    }}
+                    className={`w-full px-4 py-3 text-left text-xs font-bold block hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
+                      isDark ? 'text-slate-100' : 'text-slate-900'
+                    }`}
+                  >
+                    wallpaper
+                  </a>
+
+                  {isGroupChat && (
+                    <button
+                      id="menu-schedule-group-video-call-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsGroupCallSchedulerOpen(true);
+                      }}
+                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
+                        isDark ? 'text-slate-100' : 'text-slate-900'
+                      }`}
+                    >
+                      <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Schedule Group Video Call</span>
+                    </button>
+                  )}
+
+                  {onOpenImportWhatsApp && (
+                    <button
+                      id="menu-import-whatsapp-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        onOpenImportWhatsApp();
+                      }}
+                      className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
+                        isDark ? 'text-slate-100' : 'text-slate-900'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Import WhatsApp Messages</span>
+                    </button>
+                  )}
+
                   <button
-                    id="menu-open-ai-voice-btn"
+                    id="menu-toggle-translate-btn"
                     type="button"
                     onClick={() => {
                       setIsMoreMenuOpen(false);
-                      setIsAiVoiceBoxActive((prev) => {
-                        const next = !prev;
-                        setReactionFeedback(
-                          next
-                            ? `🎙️ AI Voice texting box enabled (${selectedAiVoiceName})`
-                            : 'AI Voice texting box hidden'
-                        );
-                        setTimeout(() => setReactionFeedback(null), 2400);
-                        return next;
-                      });
+                      setShowTranslateMode(!showTranslateMode);
                     }}
                     className={`w-full px-4 py-3 text-left text-xs font-bold flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
-                      isAiVoiceBoxActive
-                        ? 'text-emerald-500 dark:text-emerald-400'
-                        : isDark
-                        ? 'text-slate-100'
-                        : 'text-slate-900'
+                      isDark ? 'text-slate-100' : 'text-slate-900'
                     }`}
                   >
-                    <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>
-                      {isAiVoiceBoxActive
-                        ? `Hide AI Voice in Message`
-                        : `AI Voice in Message (${selectedAiVoiceName})`}
+                      {showTranslateMode
+                        ? 'Hide Translation'
+                        : `Translate (${contact.nativeLanguage || 'French'})`}
                     </span>
                   </button>
 
@@ -2560,10 +2613,24 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
 
       {/* Messages Stream */}
       <div
+        id="chat-messages-stream-container"
         className={`flex-1 relative overflow-hidden flex flex-col transition-colors duration-200 ${
           isDark ? 'bg-[#0F141C]' : 'bg-[#F4F5F7]'
         }`}
       >
+        {chatWallpaperUrl && (
+          <div
+            id="chat-custom-wallpaper-bg"
+            className="absolute inset-0 z-0 pointer-events-none overflow-hidden"
+          >
+            <img
+              src={chatWallpaperUrl}
+              alt="Message Wallpaper"
+              className="w-full h-full object-cover"
+            />
+            <div className={`absolute inset-0 ${isDark ? 'bg-black/30' : 'bg-black/10'}`} />
+          </div>
+        )}
 
         <div className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           {/* Locked User Contributions In-Stream Banner */}
@@ -4365,6 +4432,13 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
           }
         }}
       />
+      <input
+        ref={wallpaperFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleChatWallpaperFileChange}
+      />
 
       {/* Bottom Message Input Area: Blocked Contact Notice OR Normal Android Input Bar */}
       {isBlocked ? (
@@ -4503,20 +4577,6 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
                 </button>
               </div>
             )}
-
-            {/* Upload / Browse User Media Gallery Icon in Message Composer */}
-            <button
-              id="chat-upload-media-gallery-btn"
-              type="button"
-              onClick={() => {
-                setIsEmojiPickerOpen(false);
-                setIsMediaGalleryOpen(true);
-              }}
-              className="text-slate-400 hover:text-purple-500 transition-colors shrink-0 cursor-pointer"
-              title="Browse User Media Gallery & Upload Media to Message"
-            >
-              <Upload className="w-5 h-5 stroke-[1.9]" />
-            </button>
 
             {/* Paperclip (Attachment) */}
             <button

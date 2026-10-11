@@ -47,6 +47,12 @@ import {
   saveFriendInvitation,
   subscribeFriendInvitationsFromDb,
 } from './lib/friendInvitationAccess';
+import {
+  OFFICIAL_WELCOME_MESSAGE_TEXT,
+  sendAutomaticWelcomeNotificationToChatsIcon,
+  notifyChatsIconFriendBefriended,
+  notifyChatsIconFriendLikedMedia,
+} from './lib/chatIconNotificationsHelper';
 import { ChatsListScreen } from './components/ChatsListScreen';
 import { ActiveChatScreen } from './components/ActiveChatScreen';
 import { PeopleScreen } from './components/PeopleScreen';
@@ -228,6 +234,26 @@ export default function App() {
           JSON.stringify(fullSessionUser)
         );
       } catch {}
+
+      // Ensure new user receives automatic Welcome Message notification on the Chats icon
+      const sentWelcomeNotif = sendAutomaticWelcomeNotificationToChatsIcon({
+        userId: resolvedId,
+        userName: cleanName,
+      });
+      if (sentWelcomeNotif) {
+        setContacts((prev) =>
+          prev.map((c, idx) =>
+            idx === 0
+              ? {
+                  ...c,
+                  lastMessage: OFFICIAL_WELCOME_MESSAGE_TEXT,
+                  time: 'Just now',
+                  unreadCount: (c.unreadCount || 0) + 1,
+                }
+              : c
+          )
+        );
+      }
     }
     // Direct user to their Profile page after login and accepting Terms of Use & Privacy Policy
     setCurrentScreen('profile');
@@ -253,16 +279,23 @@ export default function App() {
 
     const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const cleanHandle = (newUser.username || newUser.name.toLowerCase().replace(/\s+/g, '_')).replace(/^@+/, '');
-    const welcomeText = `🎉 Welcome to WeedChat, ${newUser.name} (@${cleanHandle})! Your account registration is complete. Communicate seamlessly in ${chosenLang}, join live channel streams, and connect with friends worldwide!`;
+    const welcomeText = OFFICIAL_WELCOME_MESSAGE_TEXT;
     const welcomeTranslations: Record<string, string> = {
-      Spanish: `🎉 ¡Bienvenido a WeedChat, ${newUser.name} (@${cleanHandle})! Tu registro está completo. ¡Comunícate sin barreras en ${chosenLang} y conecta con amigos!`,
-      French: `🎉 Bienvenue sur WeedChat, ${newUser.name} (@${cleanHandle}) ! Votre inscription est terminée. Communiquez facilement en ${chosenLang} !`,
-      German: `🎉 Willkommen bei WeedChat, ${newUser.name} (@${cleanHandle})! Deine Registrierung ist abgeschlossen. Kommuniziere nahtlos auf ${chosenLang}!`,
-      Portuguese: `🎉 Bem-vindo ao WeedChat, ${newUser.name} (@${cleanHandle})! Seu cadastro foi concluído. Comunique-se facilmente em ${chosenLang}!`,
-      Arabic: `🎉 مرحباً بك في WeedChat يا ${newUser.name} (@${cleanHandle})! اكتمل تسجيل حسابك بنجاح.`,
-      Bengali: `🎉 WeedChat-এ স্বাগতম, ${newUser.name} (@${cleanHandle})! আপনার অ্যাকাউন্ট নিবন্ধন সম্পন্ন হয়েছে।`,
-      Japanese: `🎉 WeedChatへようこそ、${newUser.name} (@${cleanHandle})さん！アカウント登録が完了しました。`,
+      Spanish: `¡Bienvenido a nuestra plataforma de mensajería donde puedes conectarte con tus amigos y familiares!`,
+      French: `Bienvenue sur notre plateforme de messagerie où vous pouvez vous connecter avec vos amis et votre famille !`,
+      German: `Willkommen auf unserer Messaging-Plattform, auf der Sie sich mit Ihren Freunden und Ihrer Familie verbinden können!`,
+      Portuguese: `Bem-vindo à nossa plataforma de mensagens onde você pode se conectar com seus amigos e familiares!`,
+      Arabic: `مرحباً بك في منصة المراسلة الخاصة بنا حيث يمكنك التواصل مع أصدقائك وعائلتك!`,
+      Bengali: `আমাদের মেসেজিং প্ল্যাটফর্মে স্বাগতম যেখানে আপনি আপনার বন্ধু এবং পরিবারের সাথে সংযুক্ত হতে পারেন!`,
+      Japanese: `友人や家族とつながることができるメッセージングプラットフォームへようこそ！`,
     };
+
+    // Send automatic welcome message notification directly to the user's Chats icon
+    sendAutomaticWelcomeNotificationToChatsIcon({
+      userId: newUser.id,
+      userName: newUser.name,
+      force: true,
+    });
 
     const autoWelcomeMsg: ChatMessage = {
       id: `msg-auto-welcome-${Date.now()}`,
@@ -841,6 +874,8 @@ export default function App() {
     contactName: string;
     avatar: string;
     type: 'voice' | 'video';
+    isGroupCall?: boolean;
+    initialParticipants?: GroupParticipant[];
   } | null>(null);
 
   // Automatic Welcome Message Notification Banner state after registration
@@ -941,6 +976,13 @@ export default function App() {
       const customEvent = e as CustomEvent<FriendInvitationRecord>;
       if (customEvent.detail && customEvent.detail.status === 'pending') {
         triggerIncomingFriendRequestNotification(customEvent.detail);
+        // Send Friend Activity notification to user's Chats icon when a friend invite / befriending activity occurs
+        notifyChatsIconFriendBefriended({
+          friendName: customEvent.detail.senderName || customEvent.detail.invitedUserName || 'A Friend',
+          friendAvatar: customEvent.detail.senderAvatar || customEvent.detail.invitedUserAvatar,
+          befriendedPersonName: customEvent.detail.invitedUserName || 'a new friend',
+          contactId: customEvent.detail.invitedUserId || customEvent.detail.senderId,
+        });
       }
     };
 
@@ -961,8 +1003,25 @@ export default function App() {
           nativeLanguage,
         });
         playDefaultAppNotificationBell(brandConfig);
+        // Send Friend Activity notification to the user's Chats icon when someone is befriended
+        notifyChatsIconFriendBefriended({
+          friendName: contactName || 'Your Friend',
+          friendAvatar: contactAvatar,
+          befriendedPersonName: currentUser?.name || 'you',
+          contactId,
+        });
         setContacts((prev) =>
-          prev.map((c) => (c.id === contactId ? { ...c, friendInviteStatus: 'accepted' } : c))
+          prev.map((c) =>
+            c.id === contactId
+              ? {
+                  ...c,
+                  friendInviteStatus: 'accepted',
+                  lastMessage: `🤝 ${contactName} is now connected as your friend!`,
+                  time: 'Just now',
+                  unreadCount: (c.unreadCount || 0) + 1,
+                }
+              : c
+          )
         );
         setSelectedContact((prev) =>
           prev.id === contactId ? { ...prev, friendInviteStatus: 'accepted' } : prev
@@ -1815,19 +1874,46 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Start Call handler (logs call to Calls tab like WhatsApp)
+  // Start Call handler (logs call to Calls tab like WhatsApp & supports Group Voice Calling)
   const handleStartCall = (
     contactName: string = selectedContact.name,
     avatar: string = selectedContact.avatar,
-    type: 'voice' | 'video' = 'voice'
+    type: 'voice' | 'video' = 'voice',
+    explicitGroupCall?: boolean,
+    explicitParticipants?: GroupParticipant[]
   ) => {
-    setActiveCall({ contactName, avatar, type });
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const matchedContact = contacts.find((c) => c.name === contactName) || selectedContact;
+    const isGrp =
+      explicitGroupCall !== undefined
+        ? explicitGroupCall
+        : Boolean(matchedContact?.isGroup || matchedContact?.entityType === 'group');
+    const resolvedParticipants =
+      explicitParticipants ||
+      matchedContact?.participants ||
+      contacts
+        .filter((c) => !c.isGroup && !c.isChannel && c.entityType !== 'group' && c.entityType !== 'channel')
+        .slice(0, 3)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          avatar: c.avatar,
+          nativeLanguage: c.nativeLanguage || 'English',
+          online: true,
+          role: 'member' as const,
+        }));
+
+    setActiveCall({
+      contactName,
+      avatar,
+      type,
+      isGroupCall: isGrp,
+      initialParticipants: isGrp ? resolvedParticipants : undefined,
+    });
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newCallEntry: CallLog = {
       id: `call-${Date.now()}`,
       contactId: matchedContact?.id || `usr_${contactName.toLowerCase().replace(/\s+/g, '_')}`,
-      contactName,
+      contactName: isGrp && !contactName.toLowerCase().includes('group') ? `${contactName} (Group Call)` : contactName,
       avatar,
       type,
       direction: 'outgoing',
@@ -2151,16 +2237,43 @@ export default function App() {
 
   // Media Preview Interactions: Like, Favourite, Rate Stars
   const handleToggleLikeMedia = async (mediaId: string, isLiked: boolean) => {
+    let likedMediaTitle = 'Shared Media File';
+    let likedMediaUrl: string | undefined;
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id === mediaId) {
           const currentCount = m.likesCount ?? 14;
           const newCount = isLiked ? currentCount + 1 : Math.max(0, currentCount - 1);
+          likedMediaTitle = m.text || m.documentName || 'Media File';
+          likedMediaUrl = m.mediaUrl || m.videoThumbnail;
           return { ...m, isLiked, likesCount: newCount };
         }
         return m;
       })
     );
+    if (isLiked) {
+      const friendActorName = selectedContact?.name || 'Elena Rodriguez';
+      const friendActorAvatar = selectedContact?.avatar;
+      notifyChatsIconFriendLikedMedia({
+        friendName: friendActorName,
+        friendAvatar: friendActorAvatar,
+        mediaTitle: likedMediaTitle,
+        mediaUrl: likedMediaUrl,
+        contactId: selectedContact?.id || 'usr_elena_rodriguez',
+      });
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.id === (selectedContact?.id || 'usr_elena_rodriguez')
+            ? {
+                ...c,
+                lastMessage: `❤️ Liked media file: "${likedMediaTitle}"`,
+                time: 'Just now',
+                unreadCount: (c.unreadCount || 0) + 1,
+              }
+            : c
+        )
+      );
+    }
     try {
       const existing = await getMediaInteractionFromDb(mediaId);
       const prevLikes = existing?.likesCount ?? 14;
@@ -2437,7 +2550,9 @@ export default function App() {
           <CallsScreen
             calls={calls}
             contacts={contacts}
-            onStartCall={(name, avatar, type) => handleStartCall(name, avatar, type)}
+            onStartCall={(name, avatar, type, isGroupCall) =>
+              handleStartCall(name, avatar, type, isGroupCall)
+            }
             onOpenChat={handleSelectChat}
             onNavigate={handleNavigateScreen}
             onViewProfile={(c) => setVisitingContact(c)}
@@ -2546,12 +2661,17 @@ export default function App() {
       {/* Native App View - Fits device 100% edge-to-edge like WhatsApp */}
       {renderCurrentPhoneScreen()}
 
-      {/* Active Call Sheet overlay */}
+      {/* Active Call Sheet overlay (Supports 1-on-1 & Multi-Participant Group Voice Calling Grid) */}
       {activeCall && (
         <ActiveCallModal
           contactName={activeCall.contactName}
           avatar={activeCall.avatar}
           type={activeCall.type}
+          isGroupCall={activeCall.isGroupCall}
+          initialParticipants={activeCall.initialParticipants}
+          availableContacts={contacts}
+          currentUser={currentUser}
+          primaryColor={brandConfig.primaryColor}
           onEndCall={() => setActiveCall(null)}
         />
       )}

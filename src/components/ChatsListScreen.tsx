@@ -34,6 +34,13 @@ import {
   VerifiedCheckmarkBadge,
   isAccountProfileValidated,
 } from './VerifiedCheckmarkBadge';
+import {
+  ChatIconActivityNotification,
+  getChatIconNotifications,
+  subscribeChatIconNotifications,
+  dismissChatIconNotification,
+  markAllChatIconNotificationsRead,
+} from '../lib/chatIconNotificationsHelper';
 
 interface ChatsListScreenProps {
   contacts: UserContact[];
@@ -85,6 +92,16 @@ export const ChatsListScreen: React.FC<ChatsListScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSnapCameraOpen, setIsSnapCameraOpen] = useState(false);
   const persistentMyAvatar = getPersistentUserThumbnail({ avatar: userAvatar }, true);
+  const [chatIconNotifications, setChatIconNotifications] = useState<
+    ChatIconActivityNotification[]
+  >(() => getChatIconNotifications());
+
+  useEffect(() => {
+    const unsub = subscribeChatIconNotifications(({ notifications }) => {
+      setChatIconNotifications(notifications);
+    });
+    return unsub;
+  }, []);
 
   // Local state overrides for optimistic instant UI response (persisted in localStorage for pinned chats)
   const [localArchivedMap, setLocalArchivedMap] = useState<Record<string, boolean>>({});
@@ -770,6 +787,103 @@ export const ChatsListScreen: React.FC<ChatsListScreenProps> = ({
 
       {/* Main Conversations List Area */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 relative">
+        {/* Chats Icon Notifications: Automatic Welcome Message & Friends Activity (Befriend / Like Media) */}
+        {filterTab === 'recent' && !searchQuery && chatIconNotifications.length > 0 && (
+          <div
+            id="chats-icon-notifications-feed"
+            className={`p-3 rounded-2xl mb-2 border space-y-2 ${
+              isDark
+                ? 'bg-[#181E2B] border-purple-500/35 text-slate-100'
+                : 'bg-purple-50/70 border-purple-200 text-slate-900'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <span
+                  style={{ backgroundColor: primaryColor }}
+                  className="w-5 h-5 rounded-lg flex items-center justify-center text-white text-[11px] font-bold"
+                >
+                  🔔
+                </span>
+                <span className="text-xs font-extrabold tracking-tight">
+                  Chats Notifications & Friend Activity
+                </span>
+                {chatIconNotifications.filter((n) => n.unread).length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-extrabold">
+                    {chatIconNotifications.filter((n) => n.unread).length} New
+                  </span>
+                )}
+              </div>
+              <button
+                id="chats-notifications-mark-read-btn"
+                type="button"
+                onClick={() => markAllChatIconNotificationsRead()}
+                className="text-[10px] font-bold text-emerald-500 hover:underline cursor-pointer"
+              >
+                Mark all read
+              </button>
+            </div>
+
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+              {chatIconNotifications.slice(0, 4).map((notif) => (
+                <div
+                  key={notif.id}
+                  id={`chat-icon-notif-item-${notif.id}`}
+                  onClick={() => {
+                    const targetContact =
+                      contacts.find((c) => c.id === notif.contactId) || contacts[0];
+                    if (targetContact) {
+                      onSelectChat(targetContact);
+                    }
+                  }}
+                  className={`px-2.5 py-2 rounded-xl border flex items-start justify-between gap-2 cursor-pointer transition-all ${
+                    isDark
+                      ? 'bg-[#12161F]/90 hover:bg-slate-800/80 border-slate-800'
+                      : 'bg-white hover:bg-slate-50 border-slate-200/80 shadow-2xs'
+                  }`}
+                >
+                  <div className="flex items-start gap-2 min-w-0">
+                    <span className="text-sm shrink-0 mt-0.5">
+                      {notif.type === 'welcome_message'
+                        ? '🎉'
+                        : notif.type === 'friend_befriended'
+                        ? '🤝'
+                        : '❤️'}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-extrabold truncate">
+                          {notif.title}
+                        </span>
+                        {notif.unread && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-snug">
+                        {notif.message}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-[9px] text-slate-400 font-mono">{notif.timeLabel}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismissChatIconNotification(notif.id);
+                      }}
+                      className="p-0.5 rounded text-slate-400 hover:text-rose-500 cursor-pointer"
+                      title="Dismiss notification"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Quick Create Channel & Group Bar */}
         {(onOpenCreateChannelModal || onOpenCreateGroupModal) && filterTab !== 'archived' && (
           <div

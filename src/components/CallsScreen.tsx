@@ -25,7 +25,12 @@ import { FriendshipModal } from './FriendshipModal';
 interface CallsScreenProps {
   calls: CallLog[];
   contacts?: UserContact[];
-  onStartCall: (contactName: string, avatar: string, type: 'voice' | 'video') => void;
+  onStartCall: (
+    contactName: string,
+    avatar: string,
+    type: 'voice' | 'video',
+    isGroupCall?: boolean
+  ) => void;
   onNavigate: (screen: ScreenView) => void;
   onViewProfile?: (contact: UserContact) => void;
   onOpenFriendshipModal?: (contact: UserContact) => void;
@@ -279,6 +284,30 @@ export const CallsScreen: React.FC<CallsScreenProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Start Group Voice Call Button */}
+            <button
+              id="start-group-voice-call-btn"
+              type="button"
+              onClick={() => {
+                const groupContact = contacts.find(
+                  (c) => c.isGroup || c.entityType === 'group'
+                );
+                onStartCall(
+                  groupContact?.name || 'Group Voice Call',
+                  groupContact?.avatar ||
+                    contacts[0]?.avatar ||
+                    'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=300&auto=format&fit=crop&q=80',
+                  'voice',
+                  true
+                );
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white text-slate-900 hover:bg-white/90 active:scale-95 text-xs font-extrabold transition-all cursor-pointer shadow-xs"
+              title="Start a Group Voice Call with multiple participants"
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-[11px]">Group Voice</span>
+            </button>
+
             {/* Sync Contacts Button */}
             <button
               id="sync-contacts-calls-btn"

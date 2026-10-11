@@ -1,3 +1,5 @@
+import { notifyChatsIconFriendLikedMedia } from './chatIconNotificationsHelper';
+
 export interface LikedGalleryMediaItem {
   id: string;
   messageId: string;
@@ -99,6 +101,14 @@ export function addMediaToLikedUserGallery(
   }
 
   saveLikedUserGalleryItems(updated);
+  try {
+    notifyChatsIconFriendLikedMedia({
+      friendName: newEntry.senderName && newEntry.senderName !== 'You' ? newEntry.senderName : 'Elena Rodriguez',
+      mediaTitle: newEntry.title || 'Liked Media File',
+      mediaUrl: newEntry.thumbnailUrl || newEntry.url,
+      contactId: newEntry.contactId || 'usr_elena_rodriguez',
+    });
+  } catch {}
   return updated;
 }
 

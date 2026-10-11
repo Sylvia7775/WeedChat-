@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   PhoneOff,
   Mic,
@@ -8,28 +8,95 @@ import {
   Volume2,
   VolumeX,
   SwitchCamera,
-  Maximize2,
-  Minimize2,
   Grid,
   ShieldCheck,
-  CheckCircle2,
   X,
   PhoneForwarded,
+  UserPlus,
+  Users,
+  Check,
+  Sparkles,
+  LayoutGrid,
 } from 'lucide-react';
-import { getInitialsAvatar, getCleanAvatar } from '../lib/avatarHelper';
+import { GroupParticipant, UserContact, UserProfile } from '../types';
+import { getInitialsAvatar, getCleanAvatar, getPersistentUserThumbnail } from '../lib/avatarHelper';
+
+export interface CallGridParticipant {
+  id: string;
+  name: string;
+  avatar: string;
+  nativeLanguage?: string;
+  role?: string;
+  isSelf?: boolean;
+  isMuted?: boolean;
+  status: 'joining' | 'connected';
+}
 
 interface ActiveCallModalProps {
   contactName: string;
   avatar: string;
   type: 'voice' | 'video';
   onEndCall: (summary?: { durationSecs: number; type: 'voice' | 'video' }) => void;
+  isGroupCall?: boolean;
+  initialParticipants?: GroupParticipant[];
+  availableContacts?: UserContact[];
+  currentUser?: UserProfile;
+  primaryColor?: string;
 }
+
+const DEFAULT_FALLBACK_CANDIDATES: Array<{
+  id: string;
+  name: string;
+  avatar: string;
+  nativeLanguage: string;
+}> = [
+  {
+    id: 'usr_elena_rodriguez',
+    name: 'Elena Rodriguez',
+    avatar:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+    nativeLanguage: 'Spanish',
+  },
+  {
+    id: 'user_kristin',
+    name: 'Kristin Watson',
+    avatar:
+      'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&auto=format&fit=crop&q=80',
+    nativeLanguage: 'English',
+  },
+  {
+    id: 'usr_marcus_vance',
+    name: 'Marcus Vance',
+    avatar:
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
+    nativeLanguage: 'French',
+  },
+  {
+    id: 'usr_sophie_laurent',
+    name: 'Sophie Laurent',
+    avatar:
+      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=300&auto=format&fit=crop&q=80',
+    nativeLanguage: 'French',
+  },
+  {
+    id: 'usr_lukas_weber',
+    name: 'Lukas Weber',
+    avatar:
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80',
+    nativeLanguage: 'German',
+  },
+];
 
 export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
   contactName,
   avatar,
   type: initialType,
   onEndCall,
+  isGroupCall = false,
+  initialParticipants = [],
+  availableContacts = [],
+  currentUser,
+  primaryColor = '#7C3AED',
 }) => {
   const [callType, setCallType] = useState<'voice' | 'video'>(initialType);
   const [callStatus, setCallStatus] = useState<'ringing' | 'connected' | 'ended'>('ringing');
@@ -43,8 +110,208 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  // Group Voice Call state: Participants list & Add Participant sheet
+  const [isAddParticipantOpen, setIsAddParticipantOpen] = useState(false);
+  const [forceGridLayout, setForceGridLayout] = useState<boolean>(Boolean(isGroupCall));
+  const [participantSearch, setParticipantSearch] = useState('');
+  const [activeSpeakerIndex, setActiveSpeakerIndex] = useState<number>(0);
+
+  const myResolvedAvatar = useMemo(() => {
+    if (currentUser) {
+      return getPersistentUserThumbnail(currentUser, true);
+    }
+    return getInitialsAvatar('You', primaryColor);
+  }, [currentUser, primaryColor]);
+
+  const [participants, setParticipants] = useState<CallGridParticipant[]>(() => {
+    const selfEntry: CallGridParticipant = {
+      id: currentUser?.id || 'me',
+      name: currentUser?.name ? `${currentUser.name} (You)` : 'You',
+      avatar: myResolvedAvatar,
+      nativeLanguage: currentUser?.motherLanguage || 'English',
+      role: 'Host',
+      isSelf: true,
+      isMuted: false,
+      status: 'connected',
+    };
+
+    if (isGroupCall && initialParticipants && initialParticipants.length > 0) {
+      const others: CallGridParticipant[] = initialParticipants
+        .filter((p) => p.id !== 'me' && p.id !== currentUser?.id)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          avatar: getCleanAvatar(p.name, p.avatar, primaryColor, p.id),
+          nativeLanguage: p.nativeLanguage || 'English',
+          role: p.role,
+          isSelf: false,
+          isMuted: false,
+          status: 'connected' as const,
+        }));
+      if (others.length > 0) {
+        return [selfEntry, ...others];
+      }
+    }
+
+    if (isGroupCall) {
+      // Seed 3 initial group voice participants if group had no explicit participants array
+      const seeded = DEFAULT_FALLBACK_CANDIDATES.slice(0, 3).map((c) => ({
+        id: c.id,
+        name: c.name,
+        avatar: getCleanAvatar(c.name, c.avatar, primaryColor, c.id),
+        nativeLanguage: c.nativeLanguage,
+        isSelf: false,
+        isMuted: false,
+        status: 'connected' as const,
+      }));
+      return [selfEntry, ...seeded];
+    }
+
+    // Standard 1-on-1 call: starts with You + the called contact
+    return [
+      selfEntry,
+      {
+        id: `callee_${contactName.toLowerCase().replace(/\s+/g, '_')}`,
+        name: contactName,
+        avatar: getCleanAvatar(contactName, avatar, primaryColor),
+        nativeLanguage: 'English',
+        isSelf: false,
+        isMuted: false,
+        status: 'connected',
+      },
+    ];
+  });
+
+  // Keep self mute state synced in participants grid
+  useEffect(() => {
+    setParticipants((prev) =>
+      prev.map((p) => (p.isSelf ? { ...p, isMuted, avatar: myResolvedAvatar } : p))
+    );
+  }, [isMuted, myResolvedAvatar]);
+
+  // Candidate contacts that can join the active audio call
+  const joinableCandidates = useMemo(() => {
+    const existingIds = new Set(participants.map((p) => p.id));
+    const existingNames = new Set(
+      participants.map((p) => p.name.replace(/\s*\(You\)$/i, '').toLowerCase())
+    );
+
+    const fromContacts = (availableContacts || [])
+      .filter((c) => !c.isGroup && !c.isChannel && c.entityType !== 'group' && c.entityType !== 'channel')
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        avatar: getCleanAvatar(c.name, c.avatar, primaryColor, c.id),
+        nativeLanguage: c.nativeLanguage || 'English',
+      }));
+
+    const combined = [...fromContacts, ...DEFAULT_FALLBACK_CANDIDATES];
+    const deduped: typeof DEFAULT_FALLBACK_CANDIDATES = [];
+    const seen = new Set<string>();
+
+    for (const item of combined) {
+      const nameKey = item.name.toLowerCase();
+      if (seen.has(item.id) || seen.has(nameKey)) continue;
+      seen.add(item.id);
+      seen.add(nameKey);
+      if (existingIds.has(item.id) || existingNames.has(nameKey)) continue;
+      if (
+        participantSearch.trim() &&
+        !nameKey.includes(participantSearch.trim().toLowerCase()) &&
+        !item.nativeLanguage.toLowerCase().includes(participantSearch.trim().toLowerCase())
+      ) {
+        continue;
+      }
+      deduped.push(item);
+    }
+
+    return deduped;
+  }, [availableContacts, participants, participantSearch, primaryColor]);
+
+  // Handler to add a participant to the active audio call
+  const handleAddParticipantToCall = (candidate: {
+    id: string;
+    name: string;
+    avatar: string;
+    nativeLanguage?: string;
+  }) => {
+    setForceGridLayout(true);
+    if (callType !== 'voice') {
+      setCallType('voice');
+      setIsVideoEnabled(false);
+    }
+
+    const newParticipant: CallGridParticipant = {
+      id: candidate.id,
+      name: candidate.name,
+      avatar: candidate.avatar,
+      nativeLanguage: candidate.nativeLanguage || 'English',
+      isSelf: false,
+      isMuted: false,
+      status: 'joining',
+    };
+
+    setParticipants((prev) => {
+      if (prev.some((p) => p.id === candidate.id)) return prev;
+      return [...prev, newParticipant];
+    });
+
+    // Transition from 'joining' to 'connected' after 900ms
+    setTimeout(() => {
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === candidate.id ? { ...p, status: 'connected' } : p))
+      );
+    }, 900);
+  };
+
+  // Handler to add multiple participants at once ("Join All")
+  const handleJoinMultipleParticipants = () => {
+    const batch = joinableCandidates.slice(0, 3);
+    if (batch.length === 0) return;
+    setForceGridLayout(true);
+    if (callType !== 'voice') {
+      setCallType('voice');
+      setIsVideoEnabled(false);
+    }
+
+    batch.forEach((candidate, idx) => {
+      setTimeout(() => {
+        handleAddParticipantToCall(candidate);
+      }, idx * 200);
+    });
+    setIsAddParticipantOpen(false);
+  };
+
+  // Toggle mute for a specific remote participant in the group call grid
+  const handleToggleParticipantMute = (participantId: string) => {
+    setParticipants((prev) =>
+      prev.map((p) => {
+        if (p.id !== participantId) return p;
+        if (p.isSelf) {
+          handleToggleMute();
+          return { ...p, isMuted: !isMuted };
+        }
+        return { ...p, isMuted: !p.isMuted };
+      })
+    );
+  };
+
+  // Remove a remote participant from the group call
+  const handleRemoveParticipant = (participantId: string) => {
+    setParticipants((prev) => prev.filter((p) => p.id !== participantId || p.isSelf));
+  };
+
   // Audio Equalizer wave level
   const [audioLevel, setAudioLevel] = useState<number>(0.4);
+
+  // Rotate active speaker highlight in group voice call
+  useEffect(() => {
+    if (callStatus !== 'connected') return;
+    const interval = setInterval(() => {
+      setActiveSpeakerIndex((prev) => (prev + 1) % Math.max(1, participants.length));
+    }, 2400);
+    return () => clearInterval(interval);
+  }, [callStatus, participants.length]);
 
   // Refs for media elements
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -315,33 +582,90 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
   };
 
+  const isMultiParticipantVoiceGrid =
+    callType === 'voice' && (isGroupCall || forceGridLayout || participants.length > 2);
+
   return (
-    <div className="absolute inset-0 bg-[#0A0E17]/95 backdrop-blur-md z-50 flex flex-col justify-between p-4 sm:p-6 text-white select-none animate-in fade-in duration-200">
+    <div
+      id="active-call-modal"
+      className="absolute inset-0 bg-[#0A0E17]/95 backdrop-blur-md z-50 flex flex-col justify-between p-4 sm:p-6 text-white select-none animate-in fade-in duration-200"
+    >
       {/* Top Header info */}
-      <div className="relative text-center pt-5 sm:pt-7 z-20">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-semibold mb-2.5 border border-emerald-500/30 shadow-xs">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Freedom Encrypted {callType === 'video' ? 'Video' : 'Voice'} Call</span>
+      <div className="relative text-center pt-3 sm:pt-5 z-20">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-semibold border border-emerald-500/30 shadow-xs">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              {isMultiParticipantVoiceGrid
+                ? `Group Voice Call • ${participants.length} Joined`
+                : `Encrypted ${callType === 'video' ? 'Video' : 'Voice'} Call`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {callType === 'voice' && (
+              <button
+                id="call-toggle-group-grid-btn"
+                type="button"
+                onClick={() => setForceGridLayout((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                  isMultiParticipantVoiceGrid
+                    ? 'bg-emerald-500/25 border-emerald-400/50 text-emerald-300'
+                    : 'bg-white/10 hover:bg-white/20 border-white/15 text-slate-200'
+                }`}
+                title="Toggle Group Voice Grid Layout"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Grid ({participants.length})</span>
+              </button>
+            )}
+
+            <button
+              id="call-header-add-participant-btn"
+              type="button"
+              onClick={() => setIsAddParticipantOpen(true)}
+              style={{ backgroundColor: primaryColor }}
+              className="px-3 py-1 rounded-full text-white text-[11px] font-extrabold flex items-center gap-1 shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+              title="Add participants to join this active audio call"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ Add People</span>
+            </button>
+          </div>
         </div>
 
-        <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight drop-shadow-sm">
-          {contactName}
+        <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight drop-shadow-sm truncate">
+          {isMultiParticipantVoiceGrid && participants.length > 2
+            ? isGroupCall
+              ? contactName
+              : `${contactName} + ${participants.length - 2} more`
+            : contactName}
         </h2>
 
         {callStatus === 'ringing' ? (
-          <p className="text-xs sm:text-sm font-semibold text-emerald-400 mt-1 flex items-center justify-center gap-1.5 animate-pulse">
+          <p className="text-xs sm:text-sm font-semibold text-emerald-400 mt-0.5 flex items-center justify-center gap-1.5 animate-pulse">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span>Ringing...</span>
+            <span>
+              {isMultiParticipantVoiceGrid
+                ? `Connecting ${participants.length} participants...`
+                : 'Ringing...'}
+            </span>
           </p>
         ) : (
-          <p className="text-xs sm:text-sm font-mono text-emerald-300 mt-1 font-bold tracking-wider">
-            {formatTime(callDuration)}
-          </p>
+          <div className="flex items-center justify-center gap-2 mt-0.5">
+            <p className="text-xs sm:text-sm font-mono text-emerald-300 font-bold tracking-wider">
+              {formatTime(callDuration)}
+            </p>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-semibold flex items-center gap-1">
+              <Users className="w-3 h-3 text-emerald-400" />
+              <span>{participants.length} in call</span>
+            </span>
+          </div>
         )}
       </div>
 
       {/* Main View Area */}
-      <div className="flex-1 flex flex-col items-center justify-center relative my-3 min-h-0">
+      <div className="flex-1 flex flex-col items-center justify-center relative my-2 min-h-0 overflow-y-auto">
         {callType === 'video' ? (
           <div className="relative w-full max-w-xs sm:max-w-sm h-80 sm:h-96 rounded-3xl overflow-hidden shadow-2xl border border-white/15 bg-slate-900 group">
             {/* Remote Video Stream */}
@@ -438,8 +762,162 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
               </div>
             )}
           </div>
+        ) : isMultiParticipantVoiceGrid ? (
+          /* Group Voice Call Multi-Participant Grid Layout */
+          <div className="w-full max-w-md mx-auto flex flex-col gap-3 px-1">
+            <div
+              id="group-voice-call-grid"
+              className={`grid gap-2.5 sm:gap-3 w-full ${
+                participants.length <= 4 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+              }`}
+            >
+              {participants.map((participant, idx) => {
+                const isSpeakingNow =
+                  callStatus === 'connected' &&
+                  !participant.isMuted &&
+                  participant.status === 'connected' &&
+                  idx === activeSpeakerIndex;
+
+                return (
+                  <div
+                    key={participant.id}
+                    id={`group-call-participant-tile-${participant.id}`}
+                    className={`relative rounded-2xl p-3 sm:p-3.5 flex flex-col items-center justify-between border transition-all duration-200 ${
+                      isSpeakingNow
+                        ? 'bg-emerald-950/40 border-emerald-400 shadow-lg shadow-emerald-500/15 scale-[1.01]'
+                        : 'bg-slate-900/80 border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    {/* Top Row: Language / Status Pill & Mute/Remove controls */}
+                    <div className="w-full flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-semibold truncate">
+                        {participant.status === 'joining'
+                          ? 'Joining...'
+                          : participant.nativeLanguage || 'Audio'}
+                      </span>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleParticipantMute(participant.id)}
+                          title={participant.isMuted ? 'Unmute participant' : 'Mute participant'}
+                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                            participant.isMuted
+                              ? 'bg-rose-500/90 text-white'
+                              : 'bg-white/10 hover:bg-white/20 text-emerald-400'
+                          }`}
+                        >
+                          {participant.isMuted ? (
+                            <MicOff className="w-3 h-3" />
+                          ) : (
+                            <Mic className="w-3 h-3" />
+                          )}
+                        </button>
+
+                        {!participant.isSelf && participants.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveParticipant(participant.id)}
+                            title={`Remove ${participant.name} from call`}
+                            className="w-6 h-6 rounded-full bg-white/10 hover:bg-rose-500/80 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Center Avatar with Active Speaking Pulse Ring */}
+                    <div className="relative my-1.5">
+                      {isSpeakingNow && (
+                        <div
+                          className="absolute -inset-1.5 rounded-full bg-emerald-400/25 animate-pulse"
+                          style={{ transform: `scale(${1.05 + audioLevel * 0.18})` }}
+                        />
+                      )}
+                      <img
+                        src={participant.avatar}
+                        alt={participant.name}
+                        className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 relative z-10 shadow-md transition-all ${
+                          participant.status === 'joining'
+                            ? 'border-amber-400 opacity-75 animate-pulse'
+                            : isSpeakingNow
+                            ? 'border-emerald-400'
+                            : 'border-white/25'
+                        }`}
+                      />
+                      <span
+                        className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0A0E17] z-20 ${
+                          participant.status === 'joining'
+                            ? 'bg-amber-400 animate-ping'
+                            : participant.isMuted
+                            ? 'bg-rose-500'
+                            : 'bg-emerald-400'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Participant Name & Live Voice Waveform */}
+                    <div className="w-full text-center mt-1">
+                      <p className="text-xs sm:text-sm font-extrabold text-white truncate">
+                        {participant.name}
+                      </p>
+                      <div className="flex items-center justify-center gap-1 h-4 mt-1">
+                        {participant.status === 'joining' ? (
+                          <span className="text-[10px] text-amber-300 font-semibold animate-pulse">
+                            Ringing to join...
+                          </span>
+                        ) : participant.isMuted ? (
+                          <span className="text-[10px] text-rose-400 font-semibold flex items-center gap-1">
+                            <MicOff className="w-2.5 h-2.5" />
+                            <span>Muted</span>
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-0.5 h-3">
+                            {[0.4, 0.85, 1.0, 0.65, 0.9, 0.5].map((bar, barIdx) => (
+                              <span
+                                key={barIdx}
+                                className={`w-0.5 rounded-full transition-all duration-100 ${
+                                  isSpeakingNow ? 'bg-emerald-400' : 'bg-slate-500'
+                                }`}
+                                style={{
+                                  height: isSpeakingNow
+                                    ? `${Math.max(3, Math.round(bar * audioLevel * 14))}px`
+                                    : '4px',
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Quick "+ Join Participant" Tile inside the Grid */}
+              {joinableCandidates.length > 0 && (
+                <button
+                  id="group-call-grid-add-tile-btn"
+                  type="button"
+                  onClick={() => setIsAddParticipantOpen(true)}
+                  className="rounded-2xl p-3 sm:p-3.5 border border-dashed border-emerald-500/40 hover:border-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/15 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer min-h-[148px] group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 group-hover:bg-emerald-500/30 text-emerald-400 flex items-center justify-center transition-transform group-hover:scale-105">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs font-extrabold text-emerald-300">+ Add Participant</p>
+                    <p className="text-[10px] text-slate-400">
+                      {joinableCandidates.length} available to join
+                    </p>
+                  </div>
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
-          /* Voice Call Visuals with Pulsing Ring & Equalizer Bars */
+          /* Single 1-on-1 Voice Call Visuals with Pulsing Ring & Quick Prompt to Add Participants */
           <div className="flex flex-col items-center justify-center relative">
             <div className="relative mb-6">
               {/* Dynamic pulsing audio rings */}
@@ -476,6 +954,123 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
                 />
               ))}
             </div>
+
+            <button
+              id="voice-call-switch-to-group-btn"
+              type="button"
+              onClick={() => setIsAddParticipantOpen(true)}
+              className="mt-4 px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-emerald-300 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Add Participants for Group Voice Call</span>
+            </button>
+          </div>
+        )}
+
+        {/* Add Participants to Group Voice Call Modal / Sheet */}
+        {isAddParticipantOpen && (
+          <div
+            id="add-call-participants-modal"
+            className="absolute inset-0 bg-slate-950/95 backdrop-blur-md rounded-3xl p-4 flex flex-col justify-between z-30 animate-in zoom-in-95 duration-150 border border-white/15"
+          >
+            <div>
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <div
+                    style={{ backgroundColor: `${primaryColor}30`, color: primaryColor }}
+                    className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  >
+                    <Users className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-extrabold text-white">
+                      Add Participants to Group Voice Call
+                    </h4>
+                    <p className="text-[10px] text-slate-400">
+                      {participants.length} currently in call • Tap to join audio grid
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddParticipantOpen(false)}
+                  className="p-1.5 rounded-full bg-white/10 text-slate-300 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Search & Quick Join All Bar */}
+              <div className="flex items-center gap-2 mt-3">
+                <input
+                  type="text"
+                  value={participantSearch}
+                  onChange={(e) => setParticipantSearch(e.target.value)}
+                  placeholder="Search friends by name or language..."
+                  className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-slate-400 outline-none focus:border-emerald-400"
+                />
+                {joinableCandidates.length > 1 && (
+                  <button
+                    id="join-all-group-call-btn"
+                    type="button"
+                    onClick={handleJoinMultipleParticipants}
+                    className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold shrink-0 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>+ Join All</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Candidate List */}
+            <div className="flex-1 overflow-y-auto my-3 space-y-2 pr-1">
+              {joinableCandidates.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs">
+                  All available friends have already joined the Group Voice Call!
+                </div>
+              ) : (
+                joinableCandidates.map((cand) => (
+                  <div
+                    key={cand.id}
+                    className="flex items-center justify-between p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={cand.avatar}
+                        alt={cand.name}
+                        className="w-10 h-10 rounded-full object-cover border border-emerald-400/50 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-white truncate">{cand.name}</p>
+                        <p className="text-[10px] text-emerald-400 font-medium">
+                          {cand.nativeLanguage || 'English'} • Online
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      id={`add-participant-btn-${cand.id}`}
+                      type="button"
+                      onClick={() => handleAddParticipantToCall(cand)}
+                      style={{ backgroundColor: primaryColor }}
+                      className="px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1 hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Join Call</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsAddParticipantOpen(false)}
+              className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-xs font-extrabold text-white cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Check className="w-4 h-4" />
+              <span>Return to Group Voice Grid ({participants.length} Participants)</span>
+            </button>
           </div>
         )}
 
@@ -524,8 +1119,8 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
       </div>
 
       {/* Action Controls Bar */}
-      <div className="relative pb-6 sm:pb-8 z-20">
-        <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
+      <div className="relative pb-4 sm:pb-6 z-20">
+        <div className="flex items-center justify-center gap-2.5 sm:gap-3.5 flex-wrap">
           {/* Mute Mic toggle */}
           <button
             type="button"
@@ -537,6 +1132,24 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
             title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
           >
             {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
+
+          {/* Add Participant to Group Voice Call button */}
+          <button
+            type="button"
+            id="call-add-participant-btn"
+            onClick={() => setIsAddParticipantOpen((prev) => !prev)}
+            className={`w-12 h-12 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-md relative ${
+              isAddParticipantOpen
+                ? 'bg-emerald-500 text-white'
+                : 'bg-white/15 hover:bg-white/25 text-white active:scale-95'
+            }`}
+            title="Add participant to Group Voice Call"
+          >
+            <UserPlus className="w-5 h-5" />
+            <span className="absolute -top-1 -right-1 w-4.5 h-4.5 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold flex items-center justify-center border border-[#0A0E17]">
+              {participants.length}
+            </span>
           </button>
 
           {/* Video Toggle (Switch to Video or Turn Off Camera) */}
@@ -608,3 +1221,4 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
     </div>
   );
 };
+
