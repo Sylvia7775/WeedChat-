@@ -2519,6 +2519,8 @@ export default function App() {
             onDeleteMessage={(messageId) => {
               setMessages((prev) => prev.filter((m) => m.id !== messageId));
             }}
+            currentUserId={currentUser.id}
+            currentUserName={currentUser.name}
           />
         );
       case 'people':

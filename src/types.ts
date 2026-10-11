@@ -1,6 +1,6 @@
 export type ScreenView = 'login' | 'password_reset' | 'onboarding' | 'chats' | 'status' | 'chat_detail' | 'people' | 'calls' | 'podcast' | 'profile' | 'admin' | 'about';
 
-export type FooterPageTab = 'about' | 'terms' | 'feedback' | 'careers' | 'policy';
+export type FooterPageTab = 'about' | 'terms' | 'feedback' | 'careers' | 'policy' | 'faq';
 
 export type ContactAccountStatus = 'all' | 'active' | 'blocked';
 
@@ -444,11 +444,17 @@ export interface ChatWallpaperConfig {
   name: string;
   type: 'color' | 'gradient' | 'image' | 'doodle';
   value: string; // hex, gradient class, or image URL
+  opacity?: number;
   previewBg?: string;
   backgroundStyle?: string;
   dimness?: number;
   blur?: number;
   isCustomUrl?: boolean;
+  sharedWallpaperUrl?: string;
+  uploadedByUserId?: string;
+  uploadedByUserName?: string;
+  participantCustomWallpapers?: Record<string, string>;
+  updatedAt?: string;
 }
 
 export interface TwoFactorAuthConfig {

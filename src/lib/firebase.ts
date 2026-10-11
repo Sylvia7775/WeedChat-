@@ -1643,27 +1643,184 @@ export async function getConversationWallpaperFromDb(contactId: string): Promise
   } catch (err) {
     console.warn(`Could not load wallpaper for ${contactId}:`, err);
   }
+  try {
+    const raw = localStorage.getItem(`freedom_chat_wallpaper_config_${contactId}`);
+    if (raw) return JSON.parse(raw) as ChatWallpaperConfig;
+  } catch {}
   return null;
 }
 
 /**
- * Save chat wallpaper configuration for a contact
+ * Save chat wallpaper configuration for a conversation between two chatting participants:
+ * - When a participant uploads a new wallpaper in chat message, it becomes the current shared wallpaper
+ *   for both chatting participants at that time (`sharedWallpaperUrl`), UNLESS the other participant
+ *   has already uploaded her own different wallpaper picture (`participantCustomWallpapers[otherId]`).
+ * - When a participant uploads her own different wallpaper picture, it is saved in `participantCustomWallpapers[uploaderId]`
+ *   and also set as `sharedWallpaperUrl` if no shared wallpaper existed yet (or updated for both if the other participant hasn't uploaded her own custom picture).
  */
 export async function saveConversationWallpaperInDb(
   contactId: string,
-  wallpaper: ChatWallpaperConfig
-): Promise<void> {
-  try {
-    const wpRef = doc(db, 'chat_wallpapers', contactId);
-    await setDoc(wpRef, wallpaper, { merge: true });
-    localStorage.setItem(`freedom_chat_wallpaper_${contactId}`, JSON.stringify(wallpaper));
-  } catch (err) {
-    console.warn(`Could not save wallpaper for ${contactId}:`, err);
-    try {
-      localStorage.setItem(`freedom_chat_wallpaper_${contactId}`, JSON.stringify(wallpaper));
-    } catch {}
+  wallpaper: ChatWallpaperConfig,
+  uploaderUserId?: string,
+  uploaderUserName?: string
+): Promise<ChatWallpaperConfig> {
+  const safeId = contactId.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 120);
+  const existing = await getConversationWallpaperFromDb(safeId);
+  const prevCustomMap: Record<string, string> = {
+    ...(existing?.participantCustomWallpapers || {}),
+    ...(wallpaper.participantCustomWallpapers || {}),
+  };
+
+  const uid = (uploaderUserId || wallpaper.uploadedByUserId || 'me').trim();
+  const imageUrl = wallpaper.sharedWallpaperUrl || wallpaper.value || '';
+
+  if (uid && imageUrl) {
+    prevCustomMap[uid] = imageUrl;
   }
+
+  const mergedConfig: ChatWallpaperConfig = {
+    id: safeId,
+    name: wallpaper.name || 'Chat Wallpaper',
+    type: 'image',
+    value: imageUrl,
+    sharedWallpaperUrl: imageUrl,
+    uploadedByUserId: uid,
+    uploadedByUserName: uploaderUserName || wallpaper.uploadedByUserName || 'Participant',
+    participantCustomWallpapers: prevCustomMap,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    localStorage.setItem(`freedom_chat_wallpaper_config_${safeId}`, JSON.stringify(mergedConfig));
+    localStorage.setItem(`freedom_chat_wallpaper_${contactId}`, imageUrl);
+    if (uid) {
+      localStorage.setItem(`freedom_chat_wallpaper_user_${safeId}_${uid}`, imageUrl);
+    }
+  } catch {}
+
+  try {
+    const wpRef = doc(db, 'chat_wallpapers', safeId);
+    await setDoc(wpRef, mergedConfig, { merge: true });
+  } catch (err) {
+    console.warn(`Could not save wallpaper for ${safeId}:`, err);
+  }
+
+  return mergedConfig;
 }
+
+/**
+ * Resolve which wallpaper URL a participant should see in a 2-participant conversation:
+ * - If this participant has uploaded her own different wallpaper picture, show her own wallpaper.
+ * - Otherwise, show the current shared wallpaper uploaded by the chatting participant he/she is chatting with.
+ */
+export function resolveParticipantConversationWallpaper(
+  config: ChatWallpaperConfig | null | undefined,
+  viewerUserId: string,
+  contactId: string
+): string {
+  const uid = (viewerUserId || 'me').trim();
+  if (config) {
+    const customMap = config.participantCustomWallpapers || {};
+    if (uid && customMap[uid]) {
+      return customMap[uid];
+    }
+    if (config.sharedWallpaperUrl) {
+      return config.sharedWallpaperUrl;
+    }
+    if (config.value) {
+      return config.value;
+    }
+  }
+  try {
+    const safeId = contactId.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 120);
+    const ownSaved = localStorage.getItem(`freedom_chat_wallpaper_user_${safeId}_${uid}`);
+    if (ownSaved) return ownSaved;
+    const rawConfig = localStorage.getItem(`freedom_chat_wallpaper_config_${safeId}`);
+    if (rawConfig) {
+      const parsed = JSON.parse(rawConfig) as ChatWallpaperConfig;
+      if (uid && parsed.participantCustomWallpapers?.[uid]) {
+        return parsed.participantCustomWallpapers[uid];
+      }
+      if (parsed.sharedWallpaperUrl || parsed.value) {
+        return parsed.sharedWallpaperUrl || parsed.value;
+      }
+    }
+    const legacy = localStorage.getItem(`freedom_chat_wallpaper_${contactId}`);
+    if (legacy && (legacy.startsWith('data:image/') || legacy.startsWith('http'))) {
+      return legacy;
+    }
+  } catch {}
+  return '';
+}
+
+/**
+ * Subscribe in real-time to a conversation's wallpaper in Firestore and localStorage
+ * so both chatting participants immediately see the current shared wallpaper (unless the other participant
+ * has uploaded her own different wallpaper picture).
+ */
+export function subscribeConversationWallpaperFromDb(
+  contactId: string,
+  viewerUserId: string,
+  onWallpaperChange: (resolvedUrl: string, config: ChatWallpaperConfig | null) => void
+): () => void {
+  if (!contactId) return () => {};
+  const safeId = contactId.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 120);
+  const wpRef = doc(db, 'chat_wallpapers', safeId);
+
+  const emitFromLocal = () => {
+    try {
+      const raw = localStorage.getItem(`freedom_chat_wallpaper_config_${safeId}`);
+      const parsed = raw ? (JSON.parse(raw) as ChatWallpaperConfig) : null;
+      const url = resolveParticipantConversationWallpaper(parsed, viewerUserId, contactId);
+      onWallpaperChange(url, parsed);
+    } catch {
+      onWallpaperChange('', null);
+    }
+  };
+
+  emitFromLocal();
+
+  const handleStorage = (e: StorageEvent) => {
+    if (
+      e.key === `freedom_chat_wallpaper_config_${safeId}` ||
+      e.key === `freedom_chat_wallpaper_${contactId}` ||
+      e.key === `freedom_chat_wallpaper_user_${safeId}_${viewerUserId}`
+    ) {
+      emitFromLocal();
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+  }
+
+  const unsub = onSnapshot(
+    wpRef,
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as ChatWallpaperConfig;
+        try {
+          localStorage.setItem(`freedom_chat_wallpaper_config_${safeId}`, JSON.stringify(data));
+        } catch {}
+        const resolved = resolveParticipantConversationWallpaper(data, viewerUserId, contactId);
+        onWallpaperChange(resolved, data);
+      } else {
+        emitFromLocal();
+      }
+    },
+    () => {
+      emitFromLocal();
+    }
+  );
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorage);
+    }
+    unsub();
+  };
+}
+
 
 /**
  * Unique session identifier for the current browser tab / device instance

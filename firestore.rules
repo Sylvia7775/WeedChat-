@@ -128,6 +128,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /chat_wallpapers/{wallpaperId} {
+      allow read, write: if true;
+    }
+
     match /test/{docId} {
       allow read, write: if true;
     }

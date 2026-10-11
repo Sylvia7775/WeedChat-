@@ -1747,56 +1747,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                         <Eye className="w-3.5 h-3.5" />
                         <span>Full Avatar</span>
                       </button>
-
-                      <label
-                        id="profile-upload-id-document-label"
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer transition-all ${
-                          isDark
-                            ? 'bg-slate-800 border-slate-700 text-sky-400 hover:bg-slate-700'
-                            : 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100'
-                        }`}
-                        title="Upload ID or Document Picture for Admin Account Verification"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>Upload ID Document</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            const reader = new FileReader();
-                            reader.onload = async () => {
-                              const dataUrl = typeof reader.result === 'string' ? reader.result : '';
-                              if (!dataUrl) return;
-                              const uid = currentUser.id || 'admin_mobilephonesky';
-                              saveUserIdDocumentLocally(uid, dataUrl, f.name);
-                              const updated: UserProfile = {
-                                ...currentUser,
-                                idDocumentUrl: dataUrl,
-                                idDocumentName: f.name,
-                              };
-                              onUpdateCurrentUser(updated);
-                              try {
-                                await saveUserProfileToDb({
-                                  id: uid,
-                                  name: updated.name,
-                                  avatar: updated.avatar,
-                                  idDocumentUrl: dataUrl,
-                                  idDocumentName: f.name,
-                                });
-                              } catch {}
-                              setUploadStatusMsg(
-                                `✅ ID Document "${f.name}" uploaded! Admin can now verify and reward your account badge.`
-                              );
-                              setTimeout(() => setUploadStatusMsg(null), 4000);
-                            };
-                            reader.readAsDataURL(f);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
                     </div>
 
                     {/* Inline Second Option: Upload User Avatar by Image URL */}

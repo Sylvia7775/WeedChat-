@@ -107,6 +107,9 @@ import {
   sendChannelLiveChatMessageToDb,
   subscribeChannelLiveChatMessages,
   saveContactOrChannelToDb,
+  saveConversationWallpaperInDb,
+  subscribeConversationWallpaperFromDb,
+  resolveParticipantConversationWallpaper,
   ChannelLiveStreamRecord,
 } from '../lib/firebase';
 import { getCleanAvatar, getPersistentUserThumbnail } from '../lib/avatarHelper';
@@ -154,6 +157,8 @@ interface ActiveChatScreenProps {
   onToggleLockMessageContribution?: (messageId: string, locked: boolean) => void;
   onToggleLockUserContribution?: (contactId: string, locked: boolean) => void;
   onDeleteMessage?: (messageId: string) => void;
+  currentUserId?: string;
+  currentUserName?: string;
 }
 
 const QUICK_REACTION_EMOJIS = ['❤️', '👍', '🔥', '😂', '😮', '😢', '🙏'];
@@ -188,6 +193,8 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
   onToggleLockMessageContribution,
   onToggleLockUserContribution,
   onDeleteMessage,
+  currentUserId = 'me',
+  currentUserName = 'You',
 }) => {
   const isBlocked = contact.isBlocked === true || contact.status === 'blocked';
   const [isUserContributionsLocked, setIsUserContributionsLocked] = useState<boolean>(
@@ -1237,29 +1244,21 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
   const textInputRef = useRef<HTMLInputElement>(null);
 
   const chatWallpaperStorageKey = `freedom_chat_wallpaper_${contact.id}`;
+  const activeParticipantId = (currentUserId || 'me').trim();
   const [chatWallpaperUrl, setChatWallpaperUrl] = useState<string>(() => {
-    try {
-      return (
-        localStorage.getItem(`freedom_chat_wallpaper_${contact.id}`) ||
-        localStorage.getItem('freedom_chat_wallpaper_global') ||
-        ''
-      );
-    } catch {
-      return '';
-    }
+    return resolveParticipantConversationWallpaper(null, activeParticipantId, contact.id);
   });
 
   useEffect(() => {
-    try {
-      const saved =
-        localStorage.getItem(chatWallpaperStorageKey) ||
-        localStorage.getItem('freedom_chat_wallpaper_global') ||
-        '';
-      setChatWallpaperUrl(saved);
-    } catch {
-      setChatWallpaperUrl('');
-    }
-  }, [contact.id, chatWallpaperStorageKey]);
+    const unsub = subscribeConversationWallpaperFromDb(
+      contact.id,
+      activeParticipantId,
+      (resolvedUrl) => {
+        setChatWallpaperUrl(resolvedUrl);
+      }
+    );
+    return () => unsub();
+  }, [contact.id, activeParticipantId]);
 
   const handleChatWallpaperFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1270,8 +1269,21 @@ export const ActiveChatScreen: React.FC<ActiveChatScreenProps> = ({
       setChatWallpaperUrl(optimizedUrl);
       try {
         localStorage.setItem(chatWallpaperStorageKey, optimizedUrl);
-        localStorage.setItem('freedom_chat_wallpaper_global', optimizedUrl);
       } catch {}
+      await saveConversationWallpaperInDb(
+        contact.id,
+        {
+          id: contact.id,
+          name: file.name || 'Chat Wallpaper',
+          type: 'image',
+          value: optimizedUrl,
+          sharedWallpaperUrl: optimizedUrl,
+          uploadedByUserId: activeParticipantId,
+          uploadedByUserName: currentUserName,
+        },
+        activeParticipantId,
+        currentUserName
+      );
       setReactionFeedback('Wallpaper updated');
       setTimeout(() => setReactionFeedback(null), 2500);
     }

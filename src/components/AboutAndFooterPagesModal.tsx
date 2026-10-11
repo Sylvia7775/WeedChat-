@@ -28,10 +28,12 @@ import {
   Save,
   Plus,
   Trash2,
+  HelpCircle,
 } from 'lucide-react';
 import { AppBrandConfig, FooterPageTab, ThemeMode } from '../types';
 import { FreedomLogo } from './FreedomLogo';
 import { StatusBar } from './StatusBar';
+import { OFFICIAL_MESSAGE_POLICY } from '../lib/messagePolicy';
 
 interface FeedbackItem {
   id: string;
@@ -280,6 +282,7 @@ export const AboutAndFooterPagesView: React.FC<AboutAndFooterPagesViewProps> = (
     { id: 'terms', label: 'Terms and Conditions', icon: <FileText className="w-3.5 h-3.5" /> },
     { id: 'feedback', label: 'Feedback', icon: <MessageSquarePlus className="w-3.5 h-3.5" /> },
     { id: 'policy', label: 'Privacy', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
+    { id: 'faq', label: 'FAQ', icon: <HelpCircle className="w-3.5 h-3.5" /> },
   ];
 
   const content = (
@@ -1137,6 +1140,146 @@ export const AboutAndFooterPagesView: React.FC<AboutAndFooterPagesViewProps> = (
                     Uploaded profile avatars, covers, wallpapers, and shared media are stored securely for your account and synced with your Firebase profile state. We never sell user data or media to third-party advertisers.
                   </p>
                 </div>
+
+                {/* Official Message Policy Section */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+                  <h2 className="text-sm font-black tracking-tight">Official Message Policy</h2>
+                  {OFFICIAL_MESSAGE_POLICY.map((sec) => (
+                    <div
+                      key={sec.id}
+                      className="p-3 rounded-2xl bg-slate-900/40 dark:bg-slate-900/60 border border-slate-800/60 space-y-1.5"
+                    >
+                      <h3 className="font-extrabold text-white">{sec.title}</h3>
+                      <p className="text-[11px] text-slate-400">{sec.summary}</p>
+                      <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-400">
+                        {sec.rules.map((r, i) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 6. PUBLIC FAQ PAGE (Accessible to everyone from Login Footer) */}
+        {/* ============================================================ */}
+        {activeTab === 'faq' && (
+          <div id="page-content-faq" className="space-y-4 animate-in fade-in duration-150">
+            <div
+              className={`p-5 rounded-3xl border space-y-4 ${
+                isDark ? 'bg-[#171C28] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 border-b pb-3 border-slate-200 dark:border-slate-800">
+                <div
+                  style={{ backgroundColor: `${primaryColor}20`, color: primaryColor }}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                >
+                  <HelpCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h1 className="text-base font-black">Frequently Asked Questions (FAQ)</h1>
+                  <p className="text-[11px] text-slate-400">
+                    Public Guide: Registration, Profile, Message, Channels, Media & Delete Account
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-xs leading-relaxed">
+                {/* 1. Registration */}
+                <div
+                  id="faq-section-registration"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm" style={{ color: primaryColor }}>
+                    1. Registration
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How do I register a new account?</strong> On the Login page, select the{' '}
+                    <strong>Register</strong> tab, enter your Full Name, unique @username, optional email or phone number, and password, or sign in with Google / supported providers. Upon registration, you are automatically directed to your Profile page and receive a welcome notification on your Chats icon.
+                  </p>
+                </div>
+
+                {/* 2. Profile */}
+                <div
+                  id="faq-section-profile"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm" style={{ color: primaryColor }}>
+                    2. Profile
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How do I customize my Profile?</strong> After logging in, you land directly on your Profile page where you can upload your avatar from your device or via an image URL, set your profile cover banner, edit your @username, bio, age, gender, mother language, social links, privacy settings ("Hide online status"), and configure real Authenticator 2FA or Fingerprint biometric security.
+                  </p>
+                </div>
+
+                {/* 3. Message */}
+                <div
+                  id="faq-section-message"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm" style={{ color: primaryColor }}>
+                    3. Message
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How do messages, translations, and chat wallpapers work?</strong> You can send text messages, voice notes with Al Germain voice translation, stickers, and media in real time. From the chat menu, you can search in conversation, view Profile, Friends, Media, toggle "Video auto Play :off", and click "wallpaper" to upload a chat background. When you upload a new wallpaper in a 2-participant chat, it displays as the current wallpaper for both chatting participants—and only shows a different wallpaper to the other participant when she uploads her own different wallpaper picture.
+                  </p>
+                </div>
+
+                {/* 4. Channels */}
+                <div
+                  id="faq-section-channels"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm" style={{ color: primaryColor }}>
+                    4. Channels
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How do Channels and Groups work?</strong> Channels and Groups feature full-bleed cover banners with overlapping circular avatars, subscriber/member counts, live stream chat ("live"), and admin moderation controls. Anyone can subscribe to public channels or join groups to follow broadcasts and media updates.
+                  </p>
+                </div>
+
+                {/* 5. Media */}
+                <div
+                  id="faq-section-media"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm" style={{ color: primaryColor }}>
+                    5. Media
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How do I upload, browse, and share Media?</strong> Use the camera upload icon in your User Media Gallery to upload photos and videos, save your media session automatically, set any gallery picture as your avatar or profile cover, or share media directly into conversations. When friends like media files or befriend someone, you receive an activity notification on your Chats icon.
+                  </p>
+                </div>
+
+                {/* 6. Delete Account */}
+                <div
+                  id="faq-section-delete-account"
+                  className={`p-3.5 rounded-2xl border space-y-1.5 ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <h3 className="font-extrabold text-sm text-rose-500">
+                    6. Delete Account
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    <strong>How can I permanently delete my account?</strong> Open your Profile page, scroll to the bottom <strong>Delete My Account</strong> section, click <strong>Delete My Account</strong>, type <strong>DELETE</strong> to confirm, and submit. Your profile, session, and account data will be permanently removed from the platform and database.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1191,6 +1334,7 @@ export const AppFooterLinksBar: React.FC<AppFooterLinksBarProps> = ({
     { id: 'terms', label: 'Terms and Conditions' },
     { id: 'feedback', label: 'Feedback' },
     { id: 'policy', label: 'Privacy' },
+    { id: 'faq', label: 'FAQ' },
   ];
 
   return (
