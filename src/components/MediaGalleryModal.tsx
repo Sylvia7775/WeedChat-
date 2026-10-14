@@ -109,9 +109,11 @@ export const MediaGalleryModal: React.FC<MediaGalleryModalProps> = ({
             isGroupGallery={isGroup}
             groupParticipants={contact.participants}
             onShareWithGroupMembers={onShareWithGroupMembers}
-            onShareMediaInMessage={(mediaUrl, mediaType, title) => {
+            onShareMediaInMessage={(media) => {
               if (onShareMediaInMessage) {
-                onShareMediaInMessage(mediaUrl, mediaType, title);
+                const targetUrl = (media as any).mediaUrl || (media as any).url || '';
+                const targetType = media.type === 'video' ? 'video' : 'image';
+                onShareMediaInMessage(targetUrl, targetType, media.title);
                 onClose();
               }
             }}

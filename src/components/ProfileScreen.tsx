@@ -462,7 +462,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       const detail = (e as CustomEvent)?.detail;
       if (detail?.avatarUrl) {
         const uid = currentUser.id || 'user_abdullah';
-        saveUserAvatarLocally(uid, detail.avatarUrl, detail.title || 'Gallery Avatar', 0, detail.avatarUrl);
+        saveUserAvatarLocally(uid, detail.avatarUrl, detail.title || 'Gallery Avatar', '0 KB', detail.avatarUrl);
         setProfileThumbnailUrl(detail.avatarUrl);
         const updatedUser: UserProfile = {
           ...currentUser,
@@ -917,7 +917,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     try {
       setIsUploading(true);
       const uid = currentUser.id || 'user_abdullah';
-      saveUserAvatarLocally(uid, formattedUrl, 'URL Profile Avatar', 0, formattedUrl);
+      saveUserAvatarLocally(uid, formattedUrl, 'URL Profile Avatar', '0 KB', formattedUrl);
       try {
         localStorage.setItem(`freedom_profile_thumbnail_${uid}`, formattedUrl);
         localStorage.setItem('freedom_active_user_thumbnail_v1', formattedUrl);

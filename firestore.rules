@@ -10,6 +10,31 @@ service cloud.firestore {
       return request.resource.data;
     }
 
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'MobilePhonesky987@gmail.com' ||
+        request.auth.token.email.lower() == 'mobilephonesky987@gmail.com' ||
+        request.auth.uid == 'admin_mobilephonesky'
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        request.auth.token.email == 'MobilePhonesky987@gmail.com' ||
+        request.auth.token.email.lower() == 'mobilephonesky987@gmail.com' ||
+        request.auth.uid == 'admin_mobilephonesky'
+      );
+    }
+
     function isValidUser(data) {
       return data.keys().hasAll(['id', 'name', 'avatar']) &&
         data.id is string && data.id.size() <= 128 &&
@@ -60,24 +85,112 @@ service cloud.firestore {
         data.updatedAt is string && data.updatedAt.size() <= 50;
     }
 
+    function isValidGalleryItem(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'url']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.type in ['image', 'video', 'document', 'link', 'audio'] &&
+        data.url is string && data.url.size() <= 200000 &&
+        (!('title' in data) || (data.title is string && data.title.size() <= 300)) &&
+        (!('thumbnailUrl' in data) || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 200000)) &&
+        (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100)) &&
+        (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 50)) &&
+        (!('likesCount' in data) || data.likesCount is number) &&
+        (!('isLiked' in data) || data.isLiked is bool) &&
+        (!('isFavorite' in data) || data.isFavorite is bool) &&
+        (!('createdAt' in data) || data.createdAt is string) &&
+        (!('updatedAt' in data) || data.updatedAt is string);
+    }
+
+    function isValidFriendInvitation(data) {
+      return data.keys().hasAll(['id', 'senderId', 'invitedUserId', 'status', 'createdAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.senderId is string && data.senderId.size() <= 128 &&
+        data.invitedUserId is string && data.invitedUserId.size() <= 128 &&
+        data.senderId != data.invitedUserId &&
+        data.status in ['pending', 'accepted', 'declined'] &&
+        data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    // =========================================================================
+    // USER GALLERY & MEDIA OWNERSHIP RULES (Enforced in Database Security Rules)
+    // =========================================================================
+    match /user_galleries/{userId} {
+      allow read, write: if isValidId(userId) && (isOwner(userId) || (isSignedIn() && request.auth.uid == userId));
+
+      match /items/{mediaId} {
+        // Enforce ownership: only the owner can read their private gallery items (never other users)
+        allow read: if isValidId(userId) && isValidId(mediaId) && (
+          isOwner(userId) || (isSignedIn() && resource.data.userId == request.auth.uid)
+        );
+
+        // Enforce ownership: only the owner can create items in their gallery
+        allow create: if isValidId(userId) && isValidId(mediaId) &&
+          (isOwner(userId) || (isSignedIn() && request.auth.uid == userId)) &&
+          incoming().userId == userId &&
+          isValidGalleryItem(incoming());
+
+        // Enforce ownership: only the owner can update their items, ensuring userId remains identical
+        allow update: if isValidId(userId) && isValidId(mediaId) &&
+          (isOwner(userId) || (isSignedIn() && request.auth.uid == userId)) &&
+          incoming().userId == userId &&
+          existing().userId == userId &&
+          isValidGalleryItem(incoming());
+
+        // Enforce ownership: only the owner can delete their items
+        allow delete: if isValidId(userId) && isValidId(mediaId) &&
+          (isOwner(userId) || (isSignedIn() && existing().userId == request.auth.uid));
+      }
+    }
+
+    // Saved user media session records (Strictly owner-only)
+    match /user_media_sessions/{userId} {
+      allow read: if isValidId(userId) && (isOwner(userId) || (isSignedIn() && request.auth.uid == userId));
+      allow create, update: if isValidId(userId) &&
+        (isOwner(userId) || (isSignedIn() && request.auth.uid == userId)) &&
+        incoming().userId == userId;
+      allow delete: if isValidId(userId) && (isOwner(userId) || (isSignedIn() && request.auth.uid == userId));
+    }
+
+    // User profiles & contacts with ownership verification on mutation
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isValidId(userId) && isValidUser(incoming()) && (
+        isOwner(userId) || incoming().id == userId
+      );
+      allow update: if isValidId(userId) && isValidUser(incoming()) && (
+        isOwner(userId) || (isSignedIn() && existing().id == request.auth.uid)
+      );
+      allow delete: if isValidId(userId) && (
+        isOwner(userId) || isAdmin()
+      );
+    }
+
     match /typing_indicators/{chatId} {
       allow read: if true;
       allow create, update: if isValidId(chatId) && isValidTypingIndicator(incoming());
       allow delete: if false;
     }
 
-    match /users/{userId} {
+    match /friend_invitations/{invitationId} {
       allow read: if true;
-      allow create, update: if isValidId(userId) && isValidUser(incoming());
-      allow delete: if true;
+      allow create: if isValidId(invitationId) && isValidFriendInvitation(incoming()) && (
+        !isSignedIn() || incoming().senderId == request.auth.uid || isAdmin()
+      );
+      allow update: if isValidId(invitationId) && isValidFriendInvitation(incoming()) && (
+        !isSignedIn() || existing().invitedUserId == request.auth.uid || existing().senderId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
     match /app_config/{configId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin() || true;
     }
 
     match /app_stickers/{stickerId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin() || true;
     }
 
     match /media_interactions/{mediaId} {
@@ -100,22 +213,6 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    function isValidFriendInvitation(data) {
-      return data.keys().hasAll(['id', 'senderId', 'invitedUserId', 'status', 'createdAt']) &&
-        data.id is string && data.id.size() <= 128 &&
-        data.senderId is string && data.senderId.size() <= 128 &&
-        data.invitedUserId is string && data.invitedUserId.size() <= 128 &&
-        data.senderId != data.invitedUserId &&
-        data.status in ['pending', 'accepted', 'declined'] &&
-        data.createdAt is string && data.createdAt.size() <= 50;
-    }
-
-    match /friend_invitations/{invitationId} {
-      allow read: if true;
-      allow create, update: if isValidId(invitationId) && isValidFriendInvitation(incoming());
-      allow delete: if false;
-    }
-
     match /password_recovery_requests/{requestId} {
       allow read, write: if true;
     }
@@ -136,6 +233,7 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Default catch-all
     match /{document=**} {
       allow read, write: if false;
     }

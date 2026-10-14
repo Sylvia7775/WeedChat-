@@ -306,12 +306,55 @@
         "respondedAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["id", "senderId", "invitedUserId", "status", "createdAt"]
+    },
+    "UserGalleryItem": {
+      "title": "UserGalleryItem",
+      "description": "Private media item (photo, video, document, link) stored in a user's personal gallery with owner enforcement",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["image", "video", "document", "link", "audio"] },
+        "url": { "type": "string", "maxLength": 200000 },
+        "thumbnailUrl": { "type": "string", "maxLength": 200000 },
+        "title": { "type": "string", "maxLength": 300 },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "likesCount": { "type": "number" },
+        "isLiked": { "type": "boolean" },
+        "isFavorite": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "userId", "type", "url"]
+    },
+    "UserMediaSession": {
+      "title": "UserMediaSession",
+      "description": "Saved media session for a user, containing count and last updated timestamp",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "savedAt": { "type": "string", "maxLength": 50 },
+        "itemsCount": { "type": "number" },
+        "activeAvatarUrl": { "type": "string", "maxLength": 200000 },
+        "activeCoverUrl": { "type": "string", "maxLength": 200000 }
+      },
+      "required": ["sessionId", "userId", "savedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Stores user profiles, contact entries, and avatar media records."
+    },
+    "/user_galleries/{userId}/items/{mediaId}": {
+      "schema": "UserGalleryItem",
+      "description": "Stores private user gallery media uploads with strict owner-only database access."
+    },
+    "/user_media_sessions/{userId}": {
+      "schema": "UserMediaSession",
+      "description": "Stores saved user media gallery session data owned strictly by the user."
     },
     "/friend_invitations/{invitationId}": {
       "schema": "FriendInvitation",

@@ -28,7 +28,14 @@ import {
 } from 'lucide-react';
 import { AVAILABLE_LANGUAGES, ADMIN_CREDENTIALS } from '../data/mockData';
 import { ThemeMode, UserProfile, AppBrandConfig, FooterPageTab } from '../types';
-import { signInWithGoogleAuth, ADMIN_EMAIL, ADMIN_PASSWORD } from '../lib/firebase';
+import {
+  signInWithGoogleAuth,
+  signInWithEmailPasswordAuth,
+  ADMIN_EMAIL,
+  ADMIN_PASSWORD,
+  auth,
+  firebaseSignOut,
+} from '../lib/firebase';
 import { getInitialsAvatar, getAvatarColorForName } from '../lib/avatarHelper';
 import {
   verifyTwoFactorCode,
@@ -37,7 +44,9 @@ import {
   ADMIN_2FA_DEFAULT_SECRET,
   ADMIN_2FA_DEFAULT_BACKUP_CODES,
   getAdminTwoFactorConfig,
+  getUserTwoFactorSettings,
 } from '../lib/twoFactorAuth';
+import { TwoFactorVerificationModal } from './TwoFactorVerificationModal';
 import { PasswordResetPage, getSavedUserPassword } from './PasswordResetPage';
 import { AboutAndFooterPagesView, AppFooterLinksBar } from './AboutAndFooterPagesModal';
 import { FingerprintSetupModal } from './FingerprintSetupModal';
@@ -104,6 +113,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     secret: string;
     backupCodes: string[];
   } | null>(null);
+  const [isTwoFactorModalOpen, setIsTwoFactorModalOpen] = useState(false);
 
   // Feedback & Loading
   const [isLoading, setIsLoading] = useState(false);
@@ -325,7 +335,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     return () => clearInterval(timer);
   }, [pendingUserAuth?.secret]);
 
-  // Initiate 2FA verification challenge
+  // Initiate 2FA verification modal challenge
   const startTwoFactorChallenge = async (user: Partial<UserProfile>, isAdmin: boolean) => {
     let secret = ADMIN_2FA_DEFAULT_SECRET;
     let backupCodes = ADMIN_2FA_DEFAULT_BACKUP_CODES;
@@ -334,6 +344,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const adminConfig = await getAdminTwoFactorConfig();
       secret = adminConfig.secret || ADMIN_2FA_DEFAULT_SECRET;
       backupCodes = adminConfig.backupCodes || ADMIN_2FA_DEFAULT_BACKUP_CODES;
+    } else {
+      const userConfig = getUserTwoFactorSettings(
+        user.id || user.email || user.username || 'user'
+      );
+      secret = userConfig.secret || ADMIN_2FA_DEFAULT_SECRET;
+      backupCodes = userConfig.backupCodes || ADMIN_2FA_DEFAULT_BACKUP_CODES;
     }
 
     setPendingUserAuth({
@@ -346,14 +362,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setBackupCodeInput('');
     setUseBackupCode(false);
     setErrorMessage(null);
-    setSuccessMessage('Please complete Two-Factor Authentication (2FA)');
-    setAuthMode('2fa');
     setIsLoading(false);
 
-    // Focus first OTP field
-    setTimeout(() => {
-      otpInputRefs.current[0]?.focus();
-    }, 200);
+    // Show 2FA modal before the user is fully authenticated and redirected
+    setIsTwoFactorModalOpen(true);
+  };
+
+  const handleTwoFactorModalSuccess = (user: Partial<UserProfile>, isAdmin: boolean) => {
+    setIsTwoFactorModalOpen(false);
+    setPendingUserAuth(null);
+    setErrorMessage(null);
+    setSuccessMessage('Two-Factor Authentication verified successfully! Redirecting...');
+    // Fully authenticate the user and redirect to Profile page
+    onLoginSuccess(user, isAdmin);
+  };
+
+  const handleTwoFactorModalClose = () => {
+    setIsTwoFactorModalOpen(false);
+    setPendingUserAuth(null);
+    try {
+      firebaseSignOut(auth).catch(() => {});
+    } catch {}
   };
 
   // Handle Google Sign In
@@ -367,8 +396,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const isSuperAdmin =
         isAdmin || user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-      // Proceed to 2FA challenge for Admin or users
-      startTwoFactorChallenge(
+      setSuccessMessage(null);
+      // Proceed to 2FA modal verification before fully authenticating
+      await startTwoFactorChallenge(
         {
           id: user.id,
           name: user.name,
@@ -388,8 +418,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  // Handle Sign In submission
-  const handleSignInSubmit = (e: React.FormEvent) => {
+  // Handle Sign In submission via Firebase Auth
+  const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -407,60 +437,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      // 1. Check for Admin Credentials: mobilephonesky987@gmail.com / B45$y5via
-      const isInputAdminEmail =
-        identifier.toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
-        identifier.toLowerCase() === 'mobilephonesky987' ||
-        identifier.toLowerCase() === 'admin';
+    try {
+      // 1. Authenticate credentials with Firebase Auth (Email/Password)
+      const authResult = await signInWithEmailPasswordAuth(identifier, password);
 
-      const isRecoveredPassMatch =
-        getSavedUserPassword(identifier) === password;
-
-      const isInputAdminPass =
-        password === ADMIN_PASSWORD || password === 'B45$y5via' || isRecoveredPassMatch;
-
-      if (isInputAdminEmail && isInputAdminPass) {
-        startTwoFactorChallenge(
-          {
-            id: 'admin_mobilephonesky',
-            name: 'WeedChat Admin',
-            username: 'mobilephonesky987',
-            email: ADMIN_EMAIL,
-            avatar: getInitialsAvatar('WeedChat Admin', '#10b981'),
-            motherLanguage: signInLanguage,
-            bio: 'WeedChat Official Administration & User Support Desk',
-          },
-          true
-        );
-        return;
-      }
-
-      // If entered admin email with incorrect password
-      if (isInputAdminEmail && !isInputAdminPass) {
-        setIsLoading(false);
-        setErrorMessage('Invalid password for admin account.');
-        return;
-      }
-
-      // 2. Standard user sign in
-      const cleanName = identifier.includes('@')
-        ? identifier.split('@')[0]
-        : identifier;
-
-      startTwoFactorChallenge(
-        {
-          id: `usr_${identifier.toLowerCase().replace(/[^a-z0-9_]/g, '')}`,
-          name: cleanName,
-          username: cleanName,
-          email: identifier.includes('@') ? identifier : undefined,
-          phoneNumber: !identifier.includes('@') && /^\+?[0-9\s-()]+$/.test(identifier) ? identifier : undefined,
-          avatar: getInitialsAvatar(cleanName, getAvatarColorForName(cleanName)),
-          motherLanguage: signInLanguage,
-        },
-        false
-      );
-    }, 450);
+      // 2. Successful email/password entry -> Challenge user with 2FA modal
+      // before fully authenticating and redirecting
+      await startTwoFactorChallenge(authResult.user, authResult.isAdmin);
+    } catch (err: any) {
+      setIsLoading(false);
+      const msg = err?.message || 'Login failed. Please check your credentials.';
+      setErrorMessage(msg);
+    }
   };
 
   // Handle 2FA verification code submission
@@ -794,204 +782,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           }`}
         >
         {/* ============================================================== */}
-        {/* 2FA AUTHENTICATION CHALLENGE VIEW                             */}
+        {/* STANDARD SIGN IN / REGISTER TABS                              */}
         {/* ============================================================== */}
-        {authMode === '2fa' && pendingUserAuth ? (
-          <div className="w-full space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            {/* 2FA Header Badge */}
-            <div
-              className={`p-4 rounded-3xl border shadow-lg text-center space-y-2 ${
-                isDark ? 'bg-[#181D26] border-emerald-500/30' : 'bg-white border-emerald-200 shadow-emerald-500/10'
-              }`}
-            >
-              <div className="relative inline-flex items-center justify-center">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
-                  <ShieldCheck className="w-7 h-7" />
-                </div>
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-[#181D26] animate-ping" />
-              </div>
-
-              <div>
-                <h2 className="text-base font-extrabold flex items-center justify-center gap-1.5">
-                  <span>Two-Factor Authentication</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
-                    2FA
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Verification required for{' '}
-                  <span className="font-semibold text-slate-200">{pendingUserAuth.user.email || pendingUserAuth.user.name}</span>
-                </p>
-              </div>
-
-              {/* Time window countdown pill */}
-              <div className="flex items-center justify-center gap-2 pt-1">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-mono font-semibold text-slate-400">
-                  <RefreshCw className={`w-3 h-3 text-emerald-500 ${remainingSeconds < 5 ? 'animate-spin' : ''}`} />
-                  <span>Code refreshes in <strong className="text-emerald-400">{remainingSeconds}s</strong></span>
-                </div>
-              </div>
-            </div>
-
-            {/* Error or Success notification */}
-            {errorMessage && (
-              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-semibold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-            {successMessage && (
-              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-semibold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{successMessage}</span>
-              </div>
-            )}
-
-            {/* Verification Form */}
-            <form onSubmit={handleVerify2Fa} className="space-y-4">
-              {!useBackupCode ? (
-                <div>
-                  <label className="text-xs font-bold text-slate-400 block mb-2 text-center uppercase tracking-wider">
-                    Enter 6-Digit Authenticator Code
-                  </label>
-                  <div className="flex items-center justify-center gap-2">
-                    {twoFactorDigits.map((digit, index) => (
-                      <input
-                        key={index}
-                        ref={(el) => {
-                          otpInputRefs.current[index] = el;
-                        }}
-                        id={`login-otp-input-${index}`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={1}
-                        value={digit}
-                        onChange={(e) => handleOtpChange(index, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                        className={`w-11 h-14 sm:w-12 sm:h-16 text-center text-xl font-mono font-black rounded-2xl border-2 transition-all outline-none ${
-                          digit
-                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 ring-2 ring-emerald-500/20'
-                            : isDark
-                            ? 'bg-[#181D26] border-slate-700 text-white focus:border-emerald-500 focus:bg-slate-800'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500 focus:bg-emerald-50/30'
-                        }`}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Quick-test helper pill for effortless evaluator testing */}
-                  {currentLiveTotp && (
-                    <div className="mt-3 flex items-center justify-center">
-                      <button
-                        type="button"
-                        onClick={handleFillLiveTotp}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all cursor-pointer active:scale-95"
-                        title="Click to auto-fill current active TOTP code"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Quick Test: Fill Live Code (<strong>{currentLiveTotp}</strong>)</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                    <span>Emergency Recovery Code</span>
-                    <span className="text-[10px] text-slate-400 font-mono">Format: XXXX-XXXX</span>
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input
-                      type="text"
-                      value={backupCodeInput}
-                      onChange={(e) => setBackupCodeInput(e.target.value)}
-                      placeholder="e.g. SKY987-2FA-2026"
-                      autoFocus
-                      className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-xs font-mono uppercase font-semibold border ${
-                        isDark ? 'bg-[#181D26] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400">
-                    Use one of your 6 emergency one-time backup codes provided during setup.
-                  </p>
-                </div>
-              )}
-
-              {/* Submit 2FA Button */}
-              <button
-                id="submit-2fa-verify-btn"
-                type="submit"
-                disabled={isLoading}
-                style={{ backgroundColor: primaryColor }}
-                className="w-full py-3 px-4 rounded-xl text-white font-bold text-xs shadow-md shadow-emerald-500/25 hover:brightness-105 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Verifying 2FA Security Token...</span>
-                  </span>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>Verify & Complete Sign In</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-
-              {/* Fingerprint 2FA / MFA Biometric Verification Option */}
-              <button
-                id="verify-2fa-with-fingerprint-btn"
-                type="button"
-                onClick={() => {
-                  setFingerprintModalMode(fingerprintRecord ? 'verify' : 'record');
-                  setIsFingerprintModalOpen(true);
-                }}
-                className="w-full py-3 px-4 rounded-xl bg-[#FF5468] hover:bg-[#F24458] text-white font-extrabold text-xs shadow-md shadow-rose-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Fingerprint className="w-4 h-4" />
-                <span>
-                  {fingerprintRecord
-                    ? 'Use Fingerprint as 2FA Authentication'
-                    : 'Set & Verify Fingerprint for 2FA'}
-                </span>
-              </button>
-
-              {/* Toggle Backup Code vs TOTP */}
-              <div className="flex items-center justify-between text-xs pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseBackupCode(!useBackupCode);
-                    setErrorMessage(null);
-                  }}
-                  className="text-emerald-500 hover:text-emerald-400 font-semibold cursor-pointer"
-                >
-                  {useBackupCode ? 'Use 6-digit Authenticator app code' : 'Use emergency recovery code instead'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('signin');
-                    setPendingUserAuth(null);
-                  }}
-                  className="text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  Back to Sign In
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          /* ============================================================== */
-          /* STANDARD SIGN IN / REGISTER TABS                              */
-          /* ============================================================== */
-          <>
-            {/* Google Sign In Button */}
+        <div className="w-full">
+          {/* Google Sign In Button */}
             <div className="w-full mb-3">
               <button
                 id="google-signin-btn"
@@ -1486,8 +1280,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </form>
             )}
-          </>
-        )}
+          </div>
         </div>
       </div>
 
@@ -2074,6 +1867,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           }
         }}
       />
+
+      {/* ================================================================== */}
+      {/* 2FA VERIFICATION STEP MODAL (Using Firebase Auth)                  */}
+      {/* ================================================================== */}
+      {pendingUserAuth && (
+        <TwoFactorVerificationModal
+          isOpen={isTwoFactorModalOpen}
+          onClose={handleTwoFactorModalClose}
+          pendingUser={pendingUserAuth.user}
+          isAdmin={pendingUserAuth.isAdmin}
+          secret={pendingUserAuth.secret}
+          backupCodes={pendingUserAuth.backupCodes}
+          onVerifySuccess={handleTwoFactorModalSuccess}
+          primaryColor={primaryColor}
+          theme={theme}
+        />
+      )}
     </div>
   );
 };

@@ -273,12 +273,12 @@ export async function generateCurrentTotpCode(
     if (typeof window !== 'undefined' && window.crypto?.subtle) {
       const cryptoKey = await window.crypto.subtle.importKey(
         'raw',
-        keyBytes,
+        keyBytes as unknown as BufferSource,
         { name: 'HMAC', hash: { name: 'SHA-1' } },
         false,
         ['sign']
       );
-      const signature = await window.crypto.subtle.sign('HMAC', cryptoKey, counterBytes);
+      const signature = await window.crypto.subtle.sign('HMAC', cryptoKey, counterBytes as unknown as BufferSource);
       const hmac = new Uint8Array(signature);
       const offset = hmac[hmac.length - 1] & 0x0f;
       const binary =

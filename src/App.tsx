@@ -118,7 +118,13 @@ import {
   subscribeTypingIndicatorFromDb,
   saveContactOrChannelToDb,
   logoutAdminEverywhereInDb,
+  firebaseSignOut,
+  auth,
 } from './lib/firebase';
+import {
+  clearUserGallerySessionOnSwitch,
+  syncUserGalleryWithFirestore,
+} from './lib/likedUserGalleryHelper';
 
 export default function App() {
   // App initial loading splash screen state: always show loading page first when opening app
@@ -254,6 +260,8 @@ export default function App() {
           )
         );
       }
+      // Synchronize this user's isolated gallery from Firestore with ownership enforcement
+      syncUserGalleryWithFirestore(resolvedId).catch(() => {});
     }
     // Direct user to their Profile page after login and accepting Terms of Use & Privacy Policy
     setCurrentScreen('profile');
@@ -390,6 +398,7 @@ export default function App() {
 
     try {
       await saveUserProfileToDb(newUser);
+      syncUserGalleryWithFirestore(newUser.id).catch(() => {});
     } catch (err) {
       console.warn('Failed to save registered user profile to DB:', err);
     }
@@ -403,6 +412,10 @@ export default function App() {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setIsAdminVerified(false);
+    try {
+      firebaseSignOut(auth).catch(() => {});
+    } catch {}
+    clearUserGallerySessionOnSwitch();
     try {
       localStorage.setItem('freedom_user_authenticated', 'false');
       localStorage.removeItem('freedom_current_user_id');

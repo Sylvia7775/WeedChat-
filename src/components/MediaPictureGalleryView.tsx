@@ -68,6 +68,8 @@ import {
   saveUserMediaSession,
   setMediaGalleryPictureAsAvatar,
   setMediaGalleryPictureAsProfileCover,
+  syncUserGalleryWithFirestore,
+  getActiveSessionUserId,
 } from '../lib/likedUserGalleryHelper';
 
 export type MediaTabType = 'images' | 'videos' | 'documents' | 'links' | 'all';
@@ -255,9 +257,14 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
   const [newLinkUrl, setNewLinkUrl] = useState<string>('');
   const [newLinkTitle, setNewLinkTitle] = useState<string>('');
 
-  // Liked media items synced from chat / media player into the user's gallery cards
+  // Resolved user ID for the active gallery owner
+  const effectiveUserId = useMemo(() => {
+    return currentUserId || getActiveSessionUserId();
+  }, [currentUserId]);
+
+  // Liked media items synced specifically for the active user (isolated on account switch)
   const [likedGalleryItems, setLikedGalleryItems] = useState<LikedGalleryMediaItem[]>(() =>
-    getLikedUserGalleryItems()
+    getLikedUserGalleryItems(effectiveUserId)
   );
 
   // Media Moderation & Adult/Nudity Filter States
@@ -287,9 +294,35 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
   const galleryUploadFileRef = React.useRef<HTMLInputElement | null>(null);
   const [isAutoGeneratingGalleryThumb, setIsAutoGeneratingGalleryThumb] = useState<boolean>(false);
 
+  // Account Switching & User Gallery DB Sync
   useEffect(() => {
-    const syncLikedGallery = () => {
-      setLikedGalleryItems(getLikedUserGalleryItems());
+    // 1. Immediately load this specific user's scoped local gallery without reusing previous user's gallery
+    const userLocalItems = getLikedUserGalleryItems(effectiveUserId);
+    setLikedGalleryItems(userLocalItems);
+
+    // 2. Query Firestore database with ownership security rules
+    syncUserGalleryWithFirestore(effectiveUserId)
+      .then((dbItems) => {
+        if (dbItems && dbItems.length > 0) {
+          setLikedGalleryItems(dbItems);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not sync user gallery from Firestore:', err);
+      });
+  }, [effectiveUserId]);
+
+  useEffect(() => {
+    const syncLikedGallery = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const targetUserId = customEvent?.detail?.userId;
+      if (!targetUserId || targetUserId === effectiveUserId) {
+        setLikedGalleryItems(getLikedUserGalleryItems(effectiveUserId));
+      }
+    };
+    const handleAccountSwitched = () => {
+      const newUserId = getActiveSessionUserId();
+      setLikedGalleryItems(getLikedUserGalleryItems(newUserId));
     };
     const syncModeration = () => {
       setReportedMediaList(getReportedMediaFiles());
@@ -302,13 +335,16 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
         if (Array.isArray(del)) setDeletedIds(del);
       } catch {}
     };
+
     window.addEventListener('freedom-liked-gallery-updated', syncLikedGallery);
+    window.addEventListener('freedom-account-switched', handleAccountSwitched);
     window.addEventListener('freedom-media-moderation-updated', syncModeration);
     return () => {
       window.removeEventListener('freedom-liked-gallery-updated', syncLikedGallery);
+      window.removeEventListener('freedom-account-switched', handleAccountSwitched);
       window.removeEventListener('freedom-media-moderation-updated', syncModeration);
     };
-  }, []);
+  }, [effectiveUserId]);
 
   // Hydrate persisted overrides from localStorage
   useEffect(() => {
@@ -329,12 +365,17 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
   const allItems = useMemo<UnifiedGalleryItem[]>(() => {
     const list: UnifiedGalleryItem[] = [];
 
+    const isPersonalGallery = !contact;
     const contactName = contact?.name || 'Kristin Watson';
     const contactAvatar =
       contact?.avatar ||
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
 
-    messages.forEach((msg) => {
+    const relevantMessages = isPersonalGallery
+      ? messages.filter((m) => m.senderId === 'me' || m.senderParticipantId === effectiveUserId)
+      : messages;
+
+    relevantMessages.forEach((msg) => {
       const sName = msg.senderId === 'me' ? 'You' : msg.senderName || contactName;
       const sAvatar = msg.senderAvatar || (msg.senderId === 'me' ? '' : contactAvatar);
 
@@ -487,8 +528,8 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
       }
     });
 
-    // Provide default media showcase items if conversation has fewer items
-    if (list.length < 3) {
+    // Provide default media showcase items if contact conversation has fewer items
+    if (list.length < 3 && contact) {
       list.push(
         {
           id: 'def-img-1',
@@ -796,7 +837,7 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
           timestamp: item.timestamp,
           likesCount: 120000,
           likesDisplay: '120K',
-        });
+        }, effectiveUserId);
         setLikedGalleryItems(updatedLiked);
         setGalleryToast(
           `❤️ Liked "${item.title}" & added to your 3×3 User Gallery (🤍 120K)!`
@@ -904,7 +945,7 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
       } catch {}
       return updated;
     });
-    const updatedLiked = removeMediaFromLikedUserGallery(messageId);
+    const updatedLiked = removeMediaFromLikedUserGallery(messageId, effectiveUserId);
     setLikedGalleryItems(updatedLiked);
     if (onDeleteMessageMedia) {
       onDeleteMessageMedia(messageId);
@@ -1129,9 +1170,9 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
                     thumbnailUrl: vidRes.thumbnailUrl,
                     title: vidRes.title || 'Uploaded Video',
                     senderName: 'You',
-                  });
+                  }, effectiveUserId);
                   setLikedGalleryItems(updatedLiked);
-                  saveUserMediaSession(updatedLiked);
+                  saveUserMediaSession(updatedLiked, undefined, undefined, effectiveUserId);
                   setActiveTab('videos');
                   setGalleryToast(
                     `🎬 Video "${vidRes.title}" uploaded, thumbnail generated & session saved!`
@@ -1147,9 +1188,9 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
                     thumbnailUrl: imgRes.thumbnailDataUrl,
                     title: cleanTitle,
                     senderName: 'You',
-                  });
+                  }, effectiveUserId);
                   setLikedGalleryItems(updatedLiked);
-                  saveUserMediaSession(updatedLiked);
+                  saveUserMediaSession(updatedLiked, undefined, undefined, effectiveUserId);
                   setActiveTab('images');
                   setGalleryToast(
                     `📸 Photo "${cleanTitle}" uploaded, thumbnail generated & session saved!`
@@ -1193,7 +1234,7 @@ export const MediaPictureGalleryView: React.FC<MediaPictureGalleryViewProps> = (
             id="gallery-save-media-session-btn"
             type="button"
             onClick={() => {
-              const session = saveUserMediaSession(likedGalleryItems);
+              const session = saveUserMediaSession(likedGalleryItems, undefined, undefined, effectiveUserId);
               setGalleryToast(
                 `💾 User Media Session saved (${session.itemsCount || allItems.length} media files persisted)!`
               );
